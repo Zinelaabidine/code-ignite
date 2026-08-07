@@ -1,0 +1,85 @@
+variable "aws_region" {
+  description = "AWS region for all bootstrap resources."
+  type        = string
+  default     = "us-east-1"
+}
+
+variable "project_name" {
+  description = "Project slug. Prefixes every IAM role name created here and must match project_name in infra/envs/*/terraform.tfvars."
+  type        = string
+
+  validation {
+    condition     = can(regex("^[a-z0-9][a-z0-9-]{1,30}[a-z0-9]$", var.project_name))
+    error_message = "project_name must be lowercase alphanumeric with hyphens, 3-32 characters, and must not start or end with a hyphen."
+  }
+}
+
+variable "create_oidc_provider" {
+  description = <<-EOT
+    Create the GitHub Actions OIDC provider
+    (token.actions.githubusercontent.com).
+
+    AWS allows only one provider per URL per account, not per project. If this
+    account already has one — from a previous apply of this same config, or
+    from an unrelated project — set this to false. The existing provider is
+    then looked up by URL and reused instead of recreated. Sharing it is safe:
+    the provider grants nothing by itself, and each deploy role's own trust
+    policy is what scopes access to a specific repository.
+  EOT
+  type        = bool
+  default     = true
+}
+
+variable "github_owner" {
+  description = "GitHub organisation or user that owns the repository."
+  type        = string
+}
+
+variable "github_repo" {
+  description = "GitHub repository name, without the owner prefix."
+  type        = string
+}
+
+variable "terraform_state_bucket" {
+  description = "Name of the S3 bucket holding Terraform remote state. MUST equal the `bucket` value in backend.hcl — an S3 backend block cannot read variables, so the two are kept in sync by scripts/pre-commit-check.sh rather than by Terraform."
+  type        = string
+
+  validation {
+    condition     = can(regex("^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$", var.terraform_state_bucket))
+    error_message = "terraform_state_bucket must be a valid S3 bucket name (3-63 chars, lowercase)."
+  }
+}
+
+variable "state_noncurrent_version_retention_days" {
+  description = "How long superseded Terraform state versions are retained before expiry. Long enough to recover from a bad apply, short enough that the bucket does not grow without bound."
+  type        = number
+  default     = 90
+
+  validation {
+    condition     = var.state_noncurrent_version_retention_days >= 30
+    error_message = "Keep at least 30 days of state history — shorter windows have burned people mid-incident."
+  }
+}
+
+variable "local_dev_iam_users" {
+  description = <<-EOT
+    IAM user or role ARNs permitted to assume the local-developer role, which
+    carries the full deploy blast radius and therefore requires MFA. These
+    principals are intentionally absent from the GitHub deploy-role trust policy.
+
+    Leave empty to skip creating the role entirely (an IAM trust policy with no
+    principals is invalid, so an empty list cannot create a usable role).
+
+    REVIEW THIS LIST before every bootstrap apply.
+  EOT
+  type        = list(string)
+  default     = []
+
+  validation {
+    condition = alltrue([
+      for arn in var.local_dev_iam_users :
+      can(regex("^arn:aws:iam::[0-9]{12}:(user|role)/.+$", arn))
+    ])
+    error_message = "Each entry must be a fully qualified IAM user or role ARN (arn:aws:iam::<account-id>:user/<name>). Wildcards and account-root ARNs are not permitted."
+  }
+}

@@ -1,0 +1,63 @@
+# ----------------------------------------------------------------------
+# Terraform
+# ----------------------------------------------------------------------
+.terraform/
+*.tfstate
+*.tfstate.*
+tfplan
+tfplan.json
+crash.log
+debug.log
+**/debug.log
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+
+# Variable files hold the domain, GitHub owner, state bucket, and the list of
+# IAM principals allowed to assume the local-dev role. Only the examples are
+# committed; CI supplies the real values through TF_VAR_* environment
+# variables sourced from GitHub Actions variables.
+!*.tfvars.example
+
+# Backend configuration (the state bucket name), supplied at init time with
+# -backend-config. Committed only as an example.
+!backend.hcl.example
+
+# NOTE: .terraform.lock.hcl is deliberately NOT ignored. HashiCorp's guidance is
+# to commit it: it pins provider versions and records their checksums, which is
+# what makes a CI apply reproducible and what verifies the integrity of a binary
+# that runs with your AWS credentials. Regenerate with:
+#   terraform providers lock -platform=linux_amd64 -platform=darwin_arm64
+
+# ----------------------------------------------------------------------
+# Frontend (Next.js & Node)
+# ----------------------------------------------------------------------
+**/node_modules/
+.next/
+out/
+
+# Environment variables (prevent secret leaks)
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# ----------------------------------------------------------------------
+# Keys and certificates (never commit)
+# ----------------------------------------------------------------------
+*.pem
+
+# ----------------------------------------------------------------------
+# OS / IDE
+# ----------------------------------------------------------------------
+.DS_Store
+**/.DS_Store
+.vscode/
+
+# ----------------------------------------------------------------------
+# Claude Code — local machine config (not shared)
+# ----------------------------------------------------------------------
+.claude/settings.json
+.claude/scheduled_tasks.lock

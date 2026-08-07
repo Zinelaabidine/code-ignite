@@ -1,0 +1,177 @@
+# ──────────────────────────────────────────────────────────────────────────────
+# bootstrap.yml — Terraform state bucket + GitHub OIDC provider + IAM roles
+#
+# WHY SEPARATE FROM deploy.yml:
+#   deploy.yml authenticates to AWS by assuming
+#   <PROJECT>-<env>-github-deploy-role via GitHub OIDC. That role, and the OIDC
+#   provider backing it, are defined in infra/bootstrap.
+#
+#   A workflow must not manage its own trust chain:
+#     - A broken trust policy cannot be fixed by the job that broke it.
+#     - A compromised workflow could silently widen trust to arbitrary principals.
+#
+#   This workflow is therefore:
+#     - Manual-trigger only (workflow_dispatch)       — no accidental runs
+#     - Protected by a required-reviewer environment  — human approval gate
+#     - Assumed via a role trusted only to THIS workflow file on main
+#
+# ONE-TIME PREREQUISITE (per AWS account):
+#   The state bucket, OIDC provider, and bootstrap CI role must exist before the
+#   first run. Create them from a workstation with admin credentials:
+#
+#     cd infra/bootstrap
+#     cp terraform.tfvars.example terraform.tfvars   # fill in the values
+#     cp backend.hcl.example backend.hcl             # same bucket name
+#     terraform init -backend=false
+#     terraform apply                                # creates state bucket + roles
+#     terraform init -backend-config=backend.hcl -migrate-state
+#
+#   Then set the repository variables below and all future runs use OIDC only.
+#
+# REQUIRED REPOSITORY VARIABLES (Settings → Secrets and variables → Actions):
+#   AWS_ACCOUNT_ID       e.g. 123456789012
+#   AWS_REGION           e.g. us-east-1
+#   PROJECT_NAME         must match project_name in infra/bootstrap/terraform.tfvars
+#   TF_STATE_BUCKET      must match the bucket in backend.hcl
+# Optional:
+#   LOCAL_DEV_IAM_USERS  JSON array of IAM ARNs allowed to assume the local-dev
+#                        role, e.g. ["arn:aws:iam::123456789012:user/alice"].
+#                        Defaults to [], which skips creating the role.
+#
+# FILES TO REVIEW MANUALLY BEFORE EVERY APPLY:
+#   - infra/bootstrap/iam-deploy-roles.tf  (OIDC trust conditions)
+#   - infra/bootstrap/iam-local-dev.tf     (who may assume the shared dev role)
+#   - the LOCAL_DEV_IAM_USERS variable      (that role carries full deploy rights)
+# ──────────────────────────────────────────────────────────────────────────────
+name: bootstrap
+
+on:
+  workflow_dispatch:
+    inputs:
+      apply:
+        description: "Run terraform apply (leave unchecked for a plan-only dry run)"
+        type: boolean
+        default: false
+        required: false
+      allow_destroy:
+        description: "Permit the plan to destroy or replace trust-chain resources"
+        type: boolean
+        default: false
+        required: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: bootstrap
+  cancel-in-progress: false
+
+env:
+  TF_VERSION: 1.15.8
+
+jobs:
+  bootstrap:
+    name: terraform bootstrap
+    runs-on: self-hosted
+    timeout-minutes: 20
+    # Configure this environment with required reviewers so no bootstrap apply
+    # lands without human approval.
+    environment: bootstrap
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      AWS_REGION: ${{ vars.AWS_REGION || 'us-east-1' }}
+      TF_VAR_aws_region: ${{ vars.AWS_REGION || 'us-east-1' }}
+      TF_VAR_project_name: ${{ vars.PROJECT_NAME }}
+      TF_VAR_github_owner: ${{ github.repository_owner }}
+      TF_VAR_github_repo: ${{ github.event.repository.name }}
+      TF_VAR_terraform_state_bucket: ${{ vars.TF_STATE_BUCKET }}
+      TF_VAR_local_dev_iam_users: ${{ vars.LOCAL_DEV_IAM_USERS || '[]' }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Check required variables are set
+        run: |
+          set -euo pipefail
+          missing=()
+          [ -n "${{ vars.AWS_ACCOUNT_ID }}" ]  || missing+=("AWS_ACCOUNT_ID")
+          [ -n "${{ vars.PROJECT_NAME }}" ]    || missing+=("PROJECT_NAME")
+          [ -n "${{ vars.TF_STATE_BUCKET }}" ] || missing+=("TF_STATE_BUCKET")
+          if [ ${#missing[@]} -gt 0 ]; then
+            echo "::error::Missing GitHub Actions variables: ${missing[*]}"
+            exit 1
+          fi
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@e6de054238d6b7531b4efff3b6587d9aade6a06c # v6.2.3
+        with:
+          # This role's trust policy pins job_workflow_ref to this exact file on
+          # main, so no other workflow in the repo can assume it.
+          role-to-assume: arn:aws:iam::${{ vars.AWS_ACCOUNT_ID }}:role/${{ vars.PROJECT_NAME }}-bootstrap-ci-role
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Show AWS identity
+        run: aws sts get-caller-identity
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+          terraform_wrapper: false
+
+      - name: Terraform Init
+        working-directory: infra/bootstrap
+        run: |
+          set -euo pipefail
+          terraform init -input=false -no-color \
+            -backend-config="bucket=${{ vars.TF_STATE_BUCKET }}"
+
+      - name: Terraform Plan
+        working-directory: infra/bootstrap
+        run: terraform plan -input=false -no-color -out=tfplan
+
+      # The trust chain is the one thing in this repo that cannot be repaired by
+      # the workflow that broke it, so a destructive plan needs an explicit
+      # opt-in even here.
+      - name: Block destructive plans
+        working-directory: infra/bootstrap
+        run: |
+          set -euo pipefail
+          terraform show -json tfplan > tfplan.json
+          destructive=$(jq -r '
+            [ .resource_changes[]?
+              | select(.change.actions | index("delete"))
+              | .address ] | join("\n")
+          ' tfplan.json)
+
+          if [ -n "$destructive" ]; then
+            echo "::warning::This plan destroys or replaces trust-chain resources:"
+            echo "$destructive"
+            if [ "${{ inputs.allow_destroy }}" = "true" ]; then
+              echo "allow_destroy was set on this run — continuing."
+            else
+              echo "::error::Refusing to apply. Deleting an OIDC provider or deploy role locks GitHub Actions out of this account."
+              exit 1
+            fi
+          else
+            echo "No destroys or replacements in this plan."
+          fi
+
+      - name: Terraform Apply
+        if: inputs.apply
+        working-directory: infra/bootstrap
+        run: terraform apply -input=false -auto-approve -no-color tfplan
+
+      - name: Show outputs
+        if: inputs.apply
+        working-directory: infra/bootstrap
+        run: |
+          {
+            echo "### Bootstrap complete"
+            echo ""
+            echo '```'
+            terraform output
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"

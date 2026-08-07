@@ -1,0 +1,319 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-sans);
+  --font-mono: var(--font-geist-mono);
+  --font-heading: var(--font-sans);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar: var(--sidebar);
+  --color-chart-5: var(--chart-5);
+  --color-chart-4: var(--chart-4);
+  --color-chart-3: var(--chart-3);
+  --color-chart-2: var(--chart-2);
+  --color-chart-1: var(--chart-1);
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-2xl: calc(var(--radius) * 1.8);
+  --radius-3xl: calc(var(--radius) * 2.2);
+  --radius-4xl: calc(var(--radius) * 2.6);
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* -------------------------------------------------------------------------
+ * Amplify Authenticator - app theme override.
+ *
+ * The component ships with an opinionated card that announces "Amazon" via a
+ * heavy header, drop shadow, and accent colors. We flatten it into a quiet
+ * card matching the app palette below, rendered
+ * inside the split-screen shell built in AuthGate.tsx (this block no longer
+ * owns full-viewport centering — that's the shell's job).
+ * ------------------------------------------------------------------------- */
+.auth-gate [data-amplify-authenticator] {
+  --amplify-components-authenticator-router-background-color: var(
+    --nord-surface
+  );
+  --amplify-components-authenticator-router-border-color: rgba(
+    52,
+    56,
+    59,
+    0.08
+  );
+  --amplify-components-authenticator-router-border-width: 1px;
+  --amplify-components-authenticator-router-box-shadow:
+    0 20px 40px rgba(43, 42, 38, 0.1), 0 2px 8px rgba(43, 42, 38, 0.07);
+  --amplify-components-authenticator-router-border-radius: 1rem;
+
+  width: 100%;
+}
+
+.auth-gate [data-amplify-authenticator] [data-amplify-container] {
+  width: 100%;
+  max-width: 400px;
+}
+
+.auth-gate [data-amplify-authenticator] [data-amplify-router] {
+  border-radius: 1rem;
+  overflow: hidden;
+}
+
+.auth-gate [data-amplify-authenticator] .amplify-heading {
+  font-weight: 600;
+  font-size: 1.125rem;
+  letter-spacing: -0.01em;
+  color: var(--nord-ink);
+}
+
+.auth-gate [data-amplify-authenticator] .amplify-tabs__list {
+  border-bottom: 1px solid rgba(52, 56, 59, 0.08);
+  background: transparent;
+}
+
+.auth-gate [data-amplify-authenticator] .amplify-tabs__item {
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: #000000;
+  font-size: 0.875rem;
+  font-weight: 500;
+  padding: 0.875rem 1rem;
+}
+
+.auth-gate
+  [data-amplify-authenticator]
+  .amplify-tabs__item[data-state="active"] {
+  color: #000000;
+  border-bottom-color: #000000;
+}
+
+.auth-gate [data-amplify-authenticator] .amplify-label,
+.auth-gate [data-amplify-authenticator] .amplify-field__show-password {
+  font-size: 0.8125rem;
+  color: #000000;
+}
+
+.auth-gate [data-amplify-authenticator] .amplify-input,
+.auth-gate [data-amplify-authenticator] .amplify-select {
+  border-radius: 0.625rem;
+  border: 1px solid rgba(52, 56, 59, 0.1);
+  background: var(--nord-bg);
+  color: var(--nord-ink);
+  font-size: 0.875rem;
+  padding: 0.625rem 0.75rem;
+  transition:
+    border-color 120ms ease,
+    box-shadow 120ms ease;
+}
+
+.auth-gate [data-amplify-authenticator] .amplify-input:focus,
+.auth-gate [data-amplify-authenticator] .amplify-select:focus {
+  outline: none;
+  border-color: #000000;
+  box-shadow: 0 0 0 3px rgba(78, 130, 124, 0.18);
+}
+
+.auth-gate [data-amplify-authenticator] .amplify-button--primary {
+  background: #ffffff;
+  color: #000000;
+  border: none;
+  border-radius: 0.625rem;
+  font-weight: 600;
+  font-size: 0.875rem;
+  padding: 0.625rem 0.75rem;
+  transition: background-color 120ms ease;
+}
+
+.auth-gate [data-amplify-authenticator] .amplify-button--primary:hover {
+  background: #f0f0f0;
+}
+
+.auth-gate [data-amplify-authenticator] .amplify-button--link {
+  color: #000000;
+  font-size: 0.8125rem;
+}
+
+.auth-gate [data-amplify-authenticator] .amplify-button--link:hover {
+  color: #000000;
+  background: transparent;
+  text-decoration: underline;
+}
+
+.auth-gate [data-amplify-authenticator] .federated-sign-in-container,
+.auth-gate [data-amplify-authenticator] [data-amplify-footer] {
+  border-top: 1px solid rgba(52, 56, 59, 0.08);
+}
+
+:root {
+  /* Restored semantic palette — see --nord-* block below for the source of
+     truth. These shadcn tokens mirror it so token-driven primitives
+     (Button, etc.) inherit the same hierarchy and accent automatically. */
+  --background: #fbfaf6;
+  --foreground: #1c1c1a;
+  --card: #ffffff;
+  --card-foreground: #1c1c1a;
+  --popover: #ffffff;
+  --popover-foreground: #1c1c1a;
+  --primary: #23433a;
+  --primary-foreground: #ffffff;
+  --secondary: #f4f4f1;
+  --secondary-foreground: #1c1c1a;
+  --muted: #f4f4f1;
+  --muted-foreground: #6b6b66;
+  --accent: #eef0ee;
+  --accent-foreground: #1c1c1a;
+  --destructive: #b3564d;
+  --border: var(--nord-hairline);
+  --input: var(--nord-hairline);
+  --ring: #4e827c;
+  --chart-1: oklch(0.87 0 0);
+  --chart-2: oklch(0.556 0 0);
+  --chart-3: oklch(0.439 0 0);
+  --chart-4: oklch(0.371 0 0);
+  --chart-5: oklch(0.269 0 0);
+  --radius: 0.625rem;
+  --sidebar: #fbfaf6;
+  --sidebar-foreground: #1c1c1a;
+  --sidebar-primary: #23433a;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #eef0ee;
+  --sidebar-accent-foreground: #1c1c1a;
+  --sidebar-border: var(--nord-hairline);
+  --sidebar-ring: #4e827c;
+
+  /* ─── App palette ────────────────────────────────────────────────────────
+     A small, deliberate set of hues instead of an accidental black/white
+     flattening: warm off-white neutrals for surfaces, a warm charcoal for
+     text (not pure black, easier on the eyes and distinguishable from true
+     "ink"), a forest-green brand accent for primary actions, and a muted
+     teal for secondary accents/focus. --nord-teal (#4e827c) and --nord-pine
+     (#23433a) are chosen to match hex values already hardcoded elsewhere in
+     this file (.sw-new-scene gradient, .sw-nav-active accent bar, focus
+     rings) so those components — which never stopped using the "real"
+     brand color — now agree with the variables instead of silently
+     diverging from them. Status hues (success/danger/queued-amber) stay a
+     distinct triad so job state is always readable at a glance. */
+  --nord-bg: #fbfaf6; /* page canvas — warm off-white */
+  --nord-bg-2: #f4f2ec; /* deeper canvas / gradient edge */
+  --nord-surface: #ffffff; /* cards, panels, menus */
+  --nord-surface-2: #f6f5f0; /* secondary surface, nav bar, toolbars */
+  --nord-card: #ffffff; /* elevated card face */
+  --nord-hairline: #e2ddd2; /* low-contrast warm-gray border */
+  --nord-hairline-2: #ece8e0; /* softer inner divider */
+  --nord-ink: #1c1c1a; /* warm charcoal — primary text/headings */
+  --nord-slate: #6b6b66; /* medium warm gray — secondary text/captions */
+  --nord-slate-soft: #8a8a86; /* lighter gray — muted labels, inactive icons */
+  --nord-muted: #a3a39c; /* faint captions / placeholders */
+  --nord-pine: #23433a; /* forest green — primary CTA + active fill */
+  --nord-pine-hover: #1c382f; /* pine hover (matches .sw-new-scene hover) */
+  --nord-pine-tint: rgba(35, 67, 58, 0.12); /* selected / active fill */
+  --nord-teal: #4e827c; /* muted teal — accent, focus ring */
+  --nord-teal-tint: rgba(78, 130, 124, 0.14); /* hover / subtle wash */
+  --nord-tint: rgba(28, 28, 26, 0.05); /* neutral raised fill (glass) */
+  --nord-cta-fg: #ffffff; /* text/icon on pine or accent fills */
+  --nord-scrim: rgba(0, 0, 0, 0.55); /* dark scrim over imagery */
+  --nord-scrim-fg: #f5f4ef; /* text/icons drawn on --nord-scrim — always light, regardless of theme */
+  --nord-success: #3f7d63; /* success / live green */
+  --nord-success-tint: #e6efe8; /* success fill */
+  --nord-danger: #b3564d; /* error red */
+  --nord-danger-tint: #f4e7e4; /* error fill */
+
+  /* Legacy --nav-* aliases retained so AppTopBar keeps working; now point at
+     the unified --nord palette. */
+  --nav-surface: var(--nord-surface-2);
+  --nav-hairline: var(--nord-hairline);
+  --nav-icon-surface: var(--nord-surface);
+  --nav-ink: var(--nord-ink);
+  --nav-slate: var(--nord-slate);
+  --nav-slate-soft: var(--nord-slate-soft);
+  --nav-pine: var(--nord-pine);
+  --nav-pine-hover: var(--nord-pine-hover);
+  --nav-pine-tint: var(--nord-pine-tint);
+  --nav-teal: var(--nord-teal);
+  --nav-teal-tint: var(--nord-teal-tint);
+  --nav-cta-fg: var(--nord-cta-fg);
+}
+
+.dark {
+  --background: oklch(0.145 0 0);
+  --foreground: oklch(0.985 0 0);
+  --card: oklch(0.205 0 0);
+  --card-foreground: oklch(0.985 0 0);
+  --popover: oklch(0.205 0 0);
+  --popover-foreground: oklch(0.985 0 0);
+  --primary: oklch(0.922 0 0);
+  --primary-foreground: oklch(0.205 0 0);
+  --secondary: oklch(0.269 0 0);
+  --secondary-foreground: oklch(0.985 0 0);
+  --muted: oklch(0.269 0 0);
+  --muted-foreground: oklch(0.708 0 0);
+  --accent: oklch(0.269 0 0);
+  --accent-foreground: oklch(0.985 0 0);
+  --destructive: oklch(0.704 0.191 22.216);
+  --border: oklch(1 0 0 / 10%);
+  --input: oklch(1 0 0 / 15%);
+  --ring: oklch(0.556 0 0);
+  --chart-1: oklch(0.87 0 0);
+  --chart-2: oklch(0.556 0 0);
+  --chart-3: oklch(0.439 0 0);
+  --chart-4: oklch(0.371 0 0);
+  --chart-5: oklch(0.269 0 0);
+  --sidebar: oklch(0.205 0 0);
+  --sidebar-foreground: oklch(0.985 0 0);
+  --sidebar-primary: oklch(0.488 0.243 264.376);
+  --sidebar-primary-foreground: oklch(0.985 0 0);
+  --sidebar-accent: oklch(0.269 0 0);
+  --sidebar-accent-foreground: oklch(0.985 0 0);
+  --sidebar-border: oklch(1 0 0 / 10%);
+  --sidebar-ring: oklch(0.556 0 0);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+  html {
+    @apply font-sans;
+  }
+}

@@ -1,0 +1,32 @@
+# Copy to terraform.tfvars (gitignored) and fill in.
+#
+# In CI these are supplied as TF_VAR_* environment variables from GitHub Actions
+# repository/environment variables, so no identifying values are committed.
+#
+# terraform_state_bucket MUST equal the `bucket` in backend.hcl —
+# scripts/pre-commit-check.sh asserts that they match.
+
+aws_region              = "us-east-1"
+project_name            = "apptemplate"
+domain_name             = "apptemplate-dev.openspacenexus.store"
+hosted_zone_name        = "openspacenexus.store"
+certificate_domain_name = "*.openspacenexus.store"
+
+github_owner = "Zinelaabidine"
+github_repo  = "project-template"
+
+terraform_state_bucket = "apptemplate-terraform-state-886601940523"
+
+# ─── Hardening ────────────────────────────────────────────────────────────────
+
+# Cognito MFA (TOTP): OFF | OPTIONAL | ON
+mfa_configuration = "OFF"
+
+# Cognito threat protection: OFF | AUDIT | ENFORCED.
+# AUDIT and ENFORCED are billed per monthly active user.
+advanced_security_mode = "OFF"
+
+# WAF managed rules + per-IP rate limiting on CloudFront. Billed per web ACL,
+# per rule, and per million requests.
+enable_waf = false
+

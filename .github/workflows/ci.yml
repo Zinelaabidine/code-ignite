@@ -1,0 +1,161 @@
+# ──────────────────────────────────────────────────────────────────────────────
+# ci.yml — checks that must pass before code can merge or deploy.
+#
+# Runs on every pull request, and is called by deploy.yml (workflow_call) so the
+# same checks gate a deployment. Defining them once keeps the two from drifting.
+#
+# Nothing here touches AWS: no credentials, no OIDC token, no `id-token: write`.
+# `terraform validate` runs with `-backend=false`, so it needs no state access.
+#
+# Make this workflow a required status check on dev, staging, and main
+# (Settings → Branches → branch protection rules). Without that, none of it
+# actually blocks anything.
+# ──────────────────────────────────────────────────────────────────────────────
+name: ci
+
+on:
+  pull_request:
+    branches: [dev, staging, main]
+  workflow_call:
+
+# Deliberately minimal, and inherited by every job below.
+permissions:
+  contents: read
+
+concurrency:
+  # Safe to cancel: these jobs are read-only.
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  TF_VERSION: 1.15.8
+  NODE_VERSION: 24
+
+jobs:
+  frontend:
+    name: frontend
+    runs-on: self-hosted
+    timeout-minutes: 15
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Check formatting
+        working-directory: frontend
+        run: npm run format:check
+
+      - name: Lint
+        working-directory: frontend
+        run: npm run lint
+
+      - name: Type-check
+        working-directory: frontend
+        run: npm run typecheck
+
+      - name: Test
+        working-directory: frontend
+        run: npm run test
+
+      # Placeholder Cognito IDs: the build only needs the variables to exist,
+      # and baking real ones into a PR build would be pointless anyway.
+      - name: Build
+        working-directory: frontend
+        run: npm run build
+        env:
+          NEXT_PUBLIC_AWS_REGION: us-east-1
+          NEXT_PUBLIC_USER_POOL_ID: us-east-1_ciplaceholder
+          NEXT_PUBLIC_CLIENT_ID: ciplaceholderclientid000000
+
+  terraform:
+    name: terraform
+    runs-on: self-hosted
+    timeout-minutes: 15
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+          terraform_wrapper: false
+
+      - name: Format check
+        working-directory: infra
+        run: terraform fmt -check -recursive
+
+      # Validation catches what fmt cannot: undeclared variables, bad attribute
+      # names, type errors, broken interpolations. Previously this only ran in
+      # an opt-in local git hook, so a bad module change reached the deploy
+      # branch before anything noticed.
+      - name: Validate every root
+        run: |
+          set -euo pipefail
+          for dir in infra/bootstrap infra/envs/dev infra/envs/staging infra/envs/prod; do
+            echo "::group::terraform validate $dir"
+            terraform -chdir="$dir" init -backend=false -input=false -no-color
+            terraform -chdir="$dir" validate -no-color
+            echo "::endgroup::"
+          done
+
+      # A lock file that is out of date with the configuration means CI and
+      # workstations can resolve different provider versions.
+      - name: Check provider lock files are committed and current
+        run: |
+          set -euo pipefail
+          missing=0
+          for dir in infra/bootstrap infra/envs/dev infra/envs/staging infra/envs/prod; do
+            if [ ! -f "$dir/.terraform.lock.hcl" ]; then
+              echo "::error file=$dir::.terraform.lock.hcl is missing. Run: terraform -chdir=$dir providers lock -platform=linux_amd64 -platform=darwin_arm64"
+              missing=1
+            fi
+          done
+          exit "$missing"
+
+  security:
+    name: security scan
+    runs-on: self-hosted
+    timeout-minutes: 15
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # Misconfiguration scanning for the Terraform: public buckets, missing
+      # encryption, permissive IAM, unencrypted transport.
+      - name: Scan IaC for misconfiguration
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: config
+          scan-ref: infra
+          exit-code: "1"
+          severity: HIGH,CRITICAL
+          trivyignores: .trivyignore
+
+      # Second line of defence behind GitHub's own push protection.
+      - name: Scan for committed secrets
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          scanners: secret
+          exit-code: "1"
+          severity: MEDIUM,HIGH,CRITICAL
+
+      # Blocking on purpose. If a transitive high-severity advisory has no fix
+      # available and is not reachable from this app, triage it explicitly —
+      # `npm audit --json` to confirm the path, then pin an override in
+      # package.json rather than lowering this threshold for everything.
+      - name: Audit npm dependencies
+        working-directory: frontend
+        run: npm audit --audit-level=high

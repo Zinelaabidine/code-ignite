@@ -1,0 +1,55 @@
+# Dependabot keeps the three things this repo depends on current: npm packages,
+# GitHub Actions, and Terraform providers.
+#
+# The Actions ecosystem matters most. Every action in .github/workflows is
+# pinned to a commit SHA, which is the right call for supply-chain safety but
+# means nothing updates on its own — a pinned action never picks up a security
+# fix. Dependabot rewrites the SHA and the trailing version comment together.
+version: 2
+
+updates:
+  - package-ecosystem: npm
+    directory: /frontend
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+    open-pull-requests-limit: 5
+    labels: [dependencies, frontend]
+    groups:
+      # One PR for the routine patch churn, separate PRs for anything that
+      # could plausibly break a build.
+      minor-and-patch:
+        update-types: [minor, patch]
+    ignore:
+      # Next.js majors bring codemods and config changes; handle them manually.
+      - dependency-name: next
+        update-types: [version-update:semver-major]
+      - dependency-name: react
+        update-types: [version-update:semver-major]
+      - dependency-name: react-dom
+        update-types: [version-update:semver-major]
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+    labels: [dependencies, ci]
+    groups:
+      actions:
+        patterns: ["*"]
+
+  - package-ecosystem: terraform
+    directories:
+      - /infra/bootstrap
+      - /infra/envs/dev
+      - /infra/envs/staging
+      - /infra/envs/prod
+      - /infra/modules/static-site
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+    labels: [dependencies, infra]

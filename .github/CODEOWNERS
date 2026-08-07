@@ -1,0 +1,13 @@
+# Code owners are requested for review automatically on every pull request.
+# Combined with "Require review from Code Owners" in branch protection, this is
+# what stops a change to the trust chain slipping through unread.
+#
+# CHANGE THIS when you fork the template.
+
+* @Zinelaabidine
+
+# Anything that can grant AWS access or change what CI is allowed to do
+# deserves a deliberate second look, separately from ordinary app changes.
+/infra/bootstrap/          @Zinelaabidine
+/.github/workflows/        @Zinelaabidine
+/infra/modules/static-site/iam-github-oidc.tf @Zinelaabidine

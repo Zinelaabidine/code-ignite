@@ -1,0 +1,439 @@
+# ──────────────────────────────────────────────────────────────────────────────
+# deploy.yml — Terraform apply + static frontend deploy
+#
+#   dev branch      → infra/envs/dev      (GitHub environment: dev)
+#   staging branch  → infra/envs/staging  (GitHub environment: staging)
+#   main branch     → infra/envs/prod     (GitHub environment: prod)
+#
+# Authentication is GitHub OIDC only — no long-lived AWS keys. The role and its
+# trust policy are managed in infra/bootstrap via bootstrap.yml; this workflow
+# only attaches application policies and never modifies the trust chain that
+# lets it run.
+#
+# PROTECT THE PROD ENVIRONMENT. A push to main applies to production. The only
+# thing that can put a human in front of that is a required reviewer on the
+# `prod` GitHub environment (Settings → Environments → prod → Required
+# reviewers). Configure it before the first prod deploy.
+#
+# REQUIRED REPOSITORY VARIABLES (Settings → Secrets and variables → Actions):
+#   AWS_ACCOUNT_ID     e.g. 123456789012
+#   AWS_REGION         e.g. us-east-1
+#   PROJECT_NAME       must match project_name in infra/bootstrap
+#   TF_STATE_BUCKET    the Terraform state bucket created by bootstrap
+#
+# REQUIRED PER-ENVIRONMENT VARIABLES (Settings → Environments → <env>):
+#   DOMAIN_NAME              e.g. myapp-dev.example.com
+#   HOSTED_ZONE_NAME         e.g. example.com
+#   CERTIFICATE_DOMAIN_NAME  e.g. *.example.com
+# Optional per-environment overrides:
+#   MFA_CONFIGURATION (OFF|OPTIONAL|ON), ADVANCED_SECURITY_MODE
+#   (OFF|AUDIT|ENFORCED), ENABLE_WAF (true|false)
+#
+# None of these are secret, which is why they are variables rather than
+# secrets — but keeping them out of the repo keeps the template forkable and
+# your domain out of git history.
+# ──────────────────────────────────────────────────────────────────────────────
+name: deploy
+
+on:
+  push:
+    branches:
+      - dev
+      - staging
+      - main
+    paths-ignore:
+      - "**/*.md"
+      - "docs/**"
+      - "LICENSE"
+  workflow_dispatch:
+    inputs:
+      deploy_frontend:
+        description: "Build and deploy the frontend to S3 / CloudFront"
+        type: boolean
+        default: true
+      deploy_infra:
+        description: "Run a full Terraform apply (infra HCL changes)"
+        type: boolean
+        default: false
+      allow_destroy:
+        description: "Permit the plan to destroy or replace resources (normally blocked)"
+        type: boolean
+        default: false
+
+# Minimal by default. `id-token: write` is granted only to the job that needs
+# it — see the `deploy` job. Granting it at workflow level would hand an OIDC
+# token to every job, including the one that runs a third-party action.
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-${{ github.ref }}
+  # Never cancel a deploy in flight. Cancelling mid-apply strands the Terraform
+  # state lock and can leave infrastructure half-changed; queueing is cheap by
+  # comparison.
+  cancel-in-progress: false
+
+env:
+  TF_VERSION: 1.15.8
+  NODE_VERSION: 24
+
+jobs:
+  changes:
+    name: detect changes
+    runs-on: self-hosted
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      frontend: ${{ steps.resolve.outputs.frontend }}
+      infra: ${{ steps.resolve.outputs.infra }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Resolve diff base
+        id: base
+        run: |
+          set -euo pipefail
+          before="${{ github.event.before }}"
+          # On the first push to a branch, github.event.before is all zeros and
+          # cannot be diffed against. Fall back to the parent commit.
+          if [ -z "$before" ] || [ "$before" = "0000000000000000000000000000000000000000" ] \
+             || ! git cat-file -e "$before^{commit}" 2>/dev/null; then
+            before="$(git rev-parse "${{ github.sha }}^" 2>/dev/null || echo "")"
+          fi
+          echo "sha=$before" >> "$GITHUB_OUTPUT"
+
+      - uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
+        if: github.event_name == 'push' && steps.base.outputs.sha != ''
+        id: filter
+        with:
+          base: ${{ steps.base.outputs.sha }}
+          ref: ${{ github.sha }}
+          filters: |
+            frontend:
+              - 'frontend/**'
+            infra:
+              - 'infra/**'
+
+      - name: Resolve deploy targets
+        id: resolve
+        run: |
+          set -euo pipefail
+          to_bool() {
+            case "$1" in
+              true|True|TRUE) echo "true" ;;
+              *) echo "false" ;;
+            esac
+          }
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            frontend=$(to_bool "${{ inputs.deploy_frontend }}")
+            infra=$(to_bool "${{ inputs.deploy_infra }}")
+          elif [ -z "${{ steps.base.outputs.sha }}" ]; then
+            # No usable diff base (e.g. the very first commit) — deploy both.
+            frontend="true"
+            infra="true"
+          else
+            frontend="${{ steps.filter.outputs.frontend }}"
+            infra="${{ steps.filter.outputs.infra }}"
+          fi
+          # An infra-only push still needs the frontend rebuilt: Cognito IDs are
+          # baked into the bundle at build time, so a new pool means a new build.
+          if [ "$infra" = "true" ]; then
+            frontend="true"
+          fi
+          {
+            echo "frontend=$frontend"
+            echo "infra=$infra"
+          } >> "$GITHUB_OUTPUT"
+
+  deploy-config-check:
+    name: check deployment config
+    runs-on: self-hosted
+    needs: changes
+    if: >
+      needs.changes.outputs.frontend == 'true' ||
+      needs.changes.outputs.infra == 'true'
+    outputs:
+      ready: ${{ steps.check.outputs.ready }}
+    steps:
+      - name: Check required variables are set
+        id: check
+        env:
+          AWS_ACCOUNT_ID: ${{ vars.AWS_ACCOUNT_ID }}
+          PROJECT_NAME: ${{ vars.PROJECT_NAME }}
+          TF_STATE_BUCKET: ${{ vars.TF_STATE_BUCKET }}
+          DOMAIN_NAME: ${{ vars.DOMAIN_NAME }}
+          HOSTED_ZONE_NAME: ${{ vars.HOSTED_ZONE_NAME }}
+          CERTIFICATE_DOMAIN_NAME: ${{ vars.CERTIFICATE_DOMAIN_NAME }}
+        run: |
+          set -euo pipefail
+          missing=()
+          [ -n "$AWS_ACCOUNT_ID" ]          || missing+=("AWS_ACCOUNT_ID")
+          [ -n "$PROJECT_NAME" ]            || missing+=("PROJECT_NAME")
+          [ -n "$TF_STATE_BUCKET" ]         || missing+=("TF_STATE_BUCKET")
+          [ -n "$DOMAIN_NAME" ]             || missing+=("DOMAIN_NAME")
+          [ -n "$HOSTED_ZONE_NAME" ]        || missing+=("HOSTED_ZONE_NAME")
+          [ -n "$CERTIFICATE_DOMAIN_NAME" ] || missing+=("CERTIFICATE_DOMAIN_NAME")
+          if [ ${#missing[@]} -gt 0 ]; then
+            echo "::warning::Skipping deployment because required GitHub Actions variables are not configured: ${missing[*]}"
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          fi
+
+  ci:
+    name: ci
+    needs: changes
+    # Same checks that gate a pull request, so a direct push to a deploy branch
+    # cannot skip them.
+    uses: ./.github/workflows/ci.yml
+    permissions:
+      contents: read
+
+  deploy:
+    name: deploy
+    runs-on: self-hosted
+    needs: [changes, deploy-config-check, ci]
+    if: >-
+      ${{ (needs.changes.outputs.frontend == 'true' || needs.changes.outputs.infra == 'true')
+      && needs.deploy-config-check.outputs.ready == 'true' }}
+    timeout-minutes: 30
+    environment: ${{ github.ref_name == 'main' && 'prod' || github.ref_name }}
+    # The only job that talks to AWS, and therefore the only one that gets an
+    # OIDC token.
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      # Terraform reads these directly; no -var-file needed, and nothing
+      # identifying is committed to the repo.
+      TF_VAR_aws_region: ${{ vars.AWS_REGION || 'us-east-1' }}
+      TF_VAR_project_name: ${{ vars.PROJECT_NAME }}
+      TF_VAR_domain_name: ${{ vars.DOMAIN_NAME }}
+      TF_VAR_hosted_zone_name: ${{ vars.HOSTED_ZONE_NAME }}
+      TF_VAR_certificate_domain_name: ${{ vars.CERTIFICATE_DOMAIN_NAME }}
+      TF_VAR_github_owner: ${{ github.repository_owner }}
+      TF_VAR_github_repo: ${{ github.event.repository.name }}
+      TF_VAR_terraform_state_bucket: ${{ vars.TF_STATE_BUCKET }}
+      TF_VAR_mfa_configuration: ${{ vars.MFA_CONFIGURATION || 'OFF' }}
+      TF_VAR_advanced_security_mode: ${{ vars.ADVANCED_SECURITY_MODE || 'OFF' }}
+      TF_VAR_enable_waf: ${{ vars.ENABLE_WAF || 'false' }}
+      AWS_REGION: ${{ vars.AWS_REGION || 'us-east-1' }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set environment context
+        id: set-env
+        run: |
+          set -euo pipefail
+          case "${{ github.ref_name }}" in
+            dev)     env_name=dev ;;
+            staging) env_name=staging ;;
+            main)    env_name=prod ;;
+            *) echo "Unsupported branch: ${{ github.ref_name }}" >&2; exit 1 ;;
+          esac
+          {
+            echo "env_name=$env_name"
+            echo "tf_dir=infra/envs/$env_name"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@e6de054238d6b7531b4efff3b6587d9aade6a06c # v6.2.3
+        with:
+          role-to-assume: arn:aws:iam::${{ vars.AWS_ACCOUNT_ID }}:role/${{ vars.PROJECT_NAME }}-${{ steps.set-env.outputs.env_name }}-github-deploy-role
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Show AWS identity
+        run: aws sts get-caller-identity
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+          terraform_wrapper: false
+
+      # The state bucket name comes from one place — the TF_STATE_BUCKET
+      # variable — and feeds both the backend and the IAM grant on that bucket
+      # (TF_VAR_terraform_state_bucket above). They cannot drift apart.
+      - name: Terraform Init
+        working-directory: ${{ steps.set-env.outputs.tf_dir }}
+        run: |
+          set -euo pipefail
+          terraform init -input=false -no-color \
+            -backend-config="bucket=${{ vars.TF_STATE_BUCKET }}"
+
+      # The deploy role's own permissions live in Terraform, so a fresh
+      # environment is a chicken-and-egg problem: the role needs the managed
+      # policies attached before it can create the resources those policies
+      # authorize. Apply the IAM policies first, re-assume the role to pick up
+      # the new grants, then apply everything else.
+      - name: Terraform Apply deploy IAM policies
+        if: needs.changes.outputs.infra == 'true'
+        working-directory: ${{ steps.set-env.outputs.tf_dir }}
+        run: |
+          set -euo pipefail
+          # -refresh=false: these targets only render IAM policy JSON from HCL,
+          # so a full state refresh buys nothing here.
+          terraform apply -refresh=false -auto-approve -input=false -no-color \
+            -target=module.static_site.aws_iam_policy.github_deploy_core_policy \
+            -target=module.static_site.aws_iam_role_policy_attachment.github_deploy_core \
+            -target=module.static_site.time_sleep.iam_propagation \
+            -target=module.static_site.aws_iam_policy.github_deploy_storage_policy \
+            -target=module.static_site.aws_iam_role_policy_attachment.github_deploy_storage \
+            -target=module.static_site.time_sleep.storage_iam_propagation \
+            -target=module.static_site.aws_iam_policy.github_deploy_cdn_policy \
+            -target=module.static_site.aws_iam_role_policy_attachment.github_deploy_cdn \
+            -target=module.static_site.time_sleep.cdn_iam_propagation
+
+      - name: Refresh AWS credentials after IAM policy update
+        if: needs.changes.outputs.infra == 'true'
+        uses: aws-actions/configure-aws-credentials@e6de054238d6b7531b4efff3b6587d9aade6a06c # v6.2.3
+        with:
+          role-to-assume: arn:aws:iam::${{ vars.AWS_ACCOUNT_ID }}:role/${{ vars.PROJECT_NAME }}-${{ steps.set-env.outputs.env_name }}-github-deploy-role
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Terraform Plan
+        if: needs.changes.outputs.infra == 'true'
+        working-directory: ${{ steps.set-env.outputs.tf_dir }}
+        run: terraform plan -out=tfplan -input=false -no-color
+
+      # Treat any unexpected destroy or replacement as a blocker. The site
+      # bucket and the Cognito User Pool also carry `prevent_destroy`, but that
+      # only fires at apply time, after the plan has already been accepted —
+      # and it does not cover every resource. This catches the rest, and makes
+      # the intent visible in the log.
+      - name: Block destructive plans
+        if: needs.changes.outputs.infra == 'true'
+        working-directory: ${{ steps.set-env.outputs.tf_dir }}
+        run: |
+          set -euo pipefail
+          terraform show -json tfplan > tfplan.json
+          destructive=$(jq -r '
+            [ .resource_changes[]?
+              | select(.change.actions | index("delete"))
+              | .address ] | join("\n")
+          ' tfplan.json)
+
+          if [ -n "$destructive" ]; then
+            echo "::warning::This plan destroys or replaces resources:"
+            echo "$destructive"
+            if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.allow_destroy }}" = "true" ]; then
+              echo "allow_destroy was set on this manual run — continuing."
+            else
+              echo "::error::Refusing to apply a destructive plan. Review the resources above."
+              echo "If this is intended, re-run via workflow_dispatch with allow_destroy checked." >&2
+              exit 1
+            fi
+          else
+            echo "No destroys or replacements in this plan."
+          fi
+
+      - name: Terraform Apply
+        if: needs.changes.outputs.infra == 'true'
+        working-directory: ${{ steps.set-env.outputs.tf_dir }}
+        run: terraform apply -auto-approve -input=false -no-color tfplan
+
+      - name: Read Terraform outputs
+        if: needs.changes.outputs.frontend == 'true'
+        id: tf
+        working-directory: ${{ steps.set-env.outputs.tf_dir }}
+        run: |
+          set -euo pipefail
+          {
+            echo "s3_bucket_name=$(terraform output -raw s3_bucket_name)"
+            echo "cloudfront_distribution_id=$(terraform output -raw cloudfront_distribution_id)"
+            echo "site_url=$(terraform output -raw site_url)"
+            echo "cognito_user_pool_id=$(terraform output -raw cognito_user_pool_id)"
+            echo "cognito_client_id=$(terraform output -raw cognito_client_id)"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Setup Node.js
+        if: needs.changes.outputs.frontend == 'true'
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install frontend dependencies
+        if: needs.changes.outputs.frontend == 'true'
+        working-directory: frontend
+        run: npm ci
+
+      - name: Build frontend
+        if: needs.changes.outputs.frontend == 'true'
+        working-directory: frontend
+        run: npm run build
+        env:
+          NEXT_PUBLIC_AWS_REGION: ${{ env.AWS_REGION }}
+          NEXT_PUBLIC_USER_POOL_ID: ${{ steps.tf.outputs.cognito_user_pool_id }}
+          NEXT_PUBLIC_CLIENT_ID: ${{ steps.tf.outputs.cognito_client_id }}
+
+      # Upload order matters. Assets go up first so the new HTML never
+      # references a chunk that is not there yet; the prune runs last so the
+      # old build stays servable until the invalidation has landed.
+      - name: Upload hashed assets
+        if: needs.changes.outputs.frontend == 'true'
+        working-directory: frontend
+        run: |
+          set -euo pipefail
+          # Everything under _next/static carries a content hash in its
+          # filename, so it can be cached forever and never revalidated.
+          if [ -d ./out/_next/static ]; then
+            aws s3 sync ./out/_next/static "s3://${{ steps.tf.outputs.s3_bucket_name }}/_next/static" \
+              --no-progress \
+              --cache-control "public,max-age=31536000,immutable"
+          fi
+
+      - name: Upload HTML and unhashed assets
+        if: needs.changes.outputs.frontend == 'true'
+        working-directory: frontend
+        run: |
+          set -euo pipefail
+          # HTML and files copied from public/ keep their names between builds,
+          # so they must be revalidated on every request. CloudFront still
+          # caches them; `must-revalidate` just forces a conditional request.
+          aws s3 sync ./out "s3://${{ steps.tf.outputs.s3_bucket_name }}" \
+            --no-progress \
+            --exclude "_next/static/*" \
+            --cache-control "public,max-age=0,must-revalidate"
+
+      - name: Invalidate CloudFront
+        if: needs.changes.outputs.frontend == 'true'
+        run: |
+          set -euo pipefail
+          # A wildcard counts as a single path against the 1,000 free
+          # invalidation paths per month, so "/*" is both the simplest and the
+          # cheapest option.
+          invalidation_id=$(aws cloudfront create-invalidation \
+            --distribution-id "${{ steps.tf.outputs.cloudfront_distribution_id }}" \
+            --paths "/*" \
+            --query 'Invalidation.Id' --output text)
+          echo "Waiting for invalidation $invalidation_id to complete..."
+          aws cloudfront wait invalidation-completed \
+            --distribution-id "${{ steps.tf.outputs.cloudfront_distribution_id }}" \
+            --id "$invalidation_id"
+
+      - name: Prune deleted files
+        if: needs.changes.outputs.frontend == 'true'
+        working-directory: frontend
+        run: |
+          set -euo pipefail
+          # Runs only after the invalidation has completed, so no viewer is
+          # still being served HTML that points at the objects removed here.
+          aws s3 sync ./out "s3://${{ steps.tf.outputs.s3_bucket_name }}" \
+            --no-progress --delete --size-only
+
+      - name: Summarise deployment
+        if: needs.changes.outputs.frontend == 'true'
+        run: |
+          {
+            echo "### Deployed to \`${{ steps.set-env.outputs.env_name }}\`"
+            echo ""
+            echo "- URL: ${{ steps.tf.outputs.site_url }}"
+            echo "- Commit: \`${{ github.sha }}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
