@@ -1,0 +1,24 @@
+# Single source of truth for the Terraform remote-state bucket name, shared
+# by every root's `terraform init -backend-config=backend.hcl`.
+#
+# Copy to common-backend.hcl (gitignored) and fill in once:
+#
+#   cp infra/common-backend.hcl.example infra/common-backend.hcl
+#
+# Every root's backend.hcl is a symlink back to this one file:
+#
+#   infra/bootstrap/backend.hcl    -> ../common-backend.hcl
+#   infra/envs/dev/backend.hcl     -> ../../common-backend.hcl
+#   infra/envs/staging/backend.hcl -> ../../common-backend.hcl
+#   infra/envs/prod/backend.hcl    -> ../../common-backend.hcl
+#
+# All four roots share one bucket; only the object `key` differs per root
+# (set in each root's backend.tf), so one bucket name is genuinely all there
+# is to configure here.
+#
+# This value MUST equal `terraform_state_bucket` in common.tfvars — the
+# former tells Terraform where state lives, the latter tells IAM which bucket
+# the deploy roles may read and write. scripts/pre-commit-check.sh asserts
+# they agree.
+
+bucket = "CHANGE-ME-terraform-state"

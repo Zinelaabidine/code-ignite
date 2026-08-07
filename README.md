@@ -50,6 +50,8 @@ CloudFront  ──►  S3 (private, Origin Access Control)
 │       ├── env.ts              # build-time env contract (throws on missing)
 │       └── auth/               # Amplify Cognito configuration
 ├── infra/
+│   ├── common.tfvars            # shared values for every root (gitignored; .example tracked)
+│   ├── common-backend.hcl       # shared state bucket name (gitignored; .example tracked)
 │   ├── bootstrap/              # one-time: state bucket + OIDC + IAM roles
 │   ├── envs/{dev,staging,prod}/  # one Terraform root per environment
 │   └── modules/static-site/    # all AWS resources, one .tf file per service
@@ -66,24 +68,49 @@ from variables, so a fork only needs configuration.
    domain rather than managing it, so one certificate serves all three
    environments.
 
-2. **Bootstrap the account** (once):
+2. **Fill in the shared config, once** — `aws_region`, `project_name`,
+   `github_owner`, `github_repo`, and `terraform_state_bucket` are the same
+   across `infra/bootstrap` and all three `infra/envs/*`; `hosted_zone_name`
+   and `certificate_domain_name` are the same across all three `infra/envs/*`
+   (bootstrap doesn't use them). Instead of copy-pasting these into four
+   `terraform.tfvars` files, they live in three files at the repo root:
+
+   ```bash
+   cp infra/common.tfvars.example infra/common.tfvars                    # fill in
+   cp infra/common-domain.tfvars.example infra/common-domain.tfvars      # fill in
+   cp infra/common-backend.hcl.example infra/common-backend.hcl          # SAME bucket name
+   ```
+
+   Every Terraform root reads these through a symlink (`common.auto.tfvars`,
+   `common-domain.auto.tfvars` where applicable, and `backend.hcl` — already
+   committed pointing back to the three files above). Terraform auto-loads
+   `*.auto.tfvars`, so no `-var-file` flag is needed. Change a value once
+   here and every root picks it up. Only `domain_name` (different per
+   environment), hardening knobs, and bootstrap-only values
+   (`create_oidc_provider`, `local_dev_iam_users`, etc.) still live in each
+   root's own `terraform.tfvars`.
+
+   > `terraform_state_bucket` in `common.tfvars` and `bucket` in
+   > `common-backend.hcl` **must match**. The first tells Terraform where state
+   > lives; the second builds the IAM grant on that bucket. `pre-commit-check.sh`
+   > asserts they agree, because when they silently disagree every CI run fails
+   > with an `AccessDenied` that points nowhere near the cause.
+
+3. **Bootstrap the account** (once):
 
    ```bash
    cd infra/bootstrap
-   cp terraform.tfvars.example terraform.tfvars   # fill in the values
-   cp backend.hcl.example backend.hcl             # SAME bucket name
+   cp terraform.tfvars.example terraform.tfvars   # bootstrap-only values
    terraform init -backend=false
    terraform apply                                # creates state bucket + roles
    terraform init -backend-config=backend.hcl -migrate-state
    ```
 
-   > `terraform_state_bucket` in `terraform.tfvars` and `bucket` in
-   > `backend.hcl` **must match**. The first tells Terraform where state lives;
-   > the second builds the IAM grant on that bucket. `pre-commit-check.sh`
-   > asserts they agree, because when they silently disagree every CI run fails
-   > with an `AccessDenied` that points nowhere near the cause.
-
-3. **Set the repository variables** (Settings → Secrets and variables → Actions):
+4. **Set the repository variables** (Settings → Secrets and variables → Actions
+   → Variables → Repository variables). These are the CI-side equivalent of
+   `infra/common.tfvars` — set once, shared by every environment because a
+   GitHub environment variable falls back to the repository variable of the
+   same name when the environment doesn't override it:
 
    | Variable | Example |
    |---|---|
@@ -91,29 +118,34 @@ from variables, so a fork only needs configuration.
    | `AWS_REGION` | `us-east-1` |
    | `PROJECT_NAME` | `myapp` |
    | `TF_STATE_BUCKET` | `myapp-terraform-state` |
+   | `HOSTED_ZONE_NAME` | `example.com` |
+   | `CERTIFICATE_DOMAIN_NAME` | `*.example.com` |
    | `LOCAL_DEV_IAM_USERS` | `["arn:aws:iam::123456789012:user/you"]` (optional) |
 
-4. **Create the GitHub environments** `dev`, `staging`, `prod` and `bootstrap`,
-   and set per-environment variables on each of the first three:
+5. **Create the GitHub environments** `dev`, `staging`, `prod` and `bootstrap`,
+   and set the one variable that genuinely differs per environment (plus any
+   hardening overrides you want) on each of the first three:
 
    | Variable | Example |
    |---|---|
    | `DOMAIN_NAME` | `myapp-dev.example.com` |
-   | `HOSTED_ZONE_NAME` | `example.com` |
-   | `CERTIFICATE_DOMAIN_NAME` | `*.example.com` |
    | `MFA_CONFIGURATION` | `OPTIONAL` (optional) |
    | `ADVANCED_SECURITY_MODE` | `AUDIT` (optional, billed per MAU) |
    | `ENABLE_WAF` | `true` (optional, billed) |
 
-5. **Turn on the protections the code cannot enforce** — see
+   Only set `HOSTED_ZONE_NAME` / `CERTIFICATE_DOMAIN_NAME` again at the
+   environment level if a specific environment genuinely needs a different
+   zone or certificate than the repository-level default.
+
+6. **Turn on the protections the code cannot enforce** — see
    [SECURITY.md](SECURITY.md#required-repository-settings). At minimum: required
    reviewers on `prod` and `bootstrap`, and branch protection requiring the `ci`
    checks. **A push to `main` applies to production**; the `prod` environment's
    reviewer rule is the only thing that puts a human in front of that.
 
-6. **Update [`.github/CODEOWNERS`](.github/CODEOWNERS)** with your GitHub handle.
+7. **Update [`.github/CODEOWNERS`](.github/CODEOWNERS)** with your GitHub handle.
 
-7. **Push.** `dev` → dev, `staging` → staging, `main` → prod.
+8. **Push.** `dev` → dev, `staging` → staging, `main` → prod.
 
 ## Environments
 
@@ -142,11 +174,14 @@ npm run test
 npm run format                 # or format:check
 npm run build                  # static export to out/
 
+# Terraform — shared config, once for every root (see "Forking this template")
+cp infra/common.tfvars.example infra/common.tfvars
+cp infra/common-backend.hcl.example infra/common-backend.hcl
+
 # Terraform (per environment)
 cd infra/envs/dev
-cp terraform.tfvars.example terraform.tfvars
-cp backend.hcl.example backend.hcl               # same bucket as terraform.tfvars
-terraform init -backend-config=backend.hcl
+cp terraform.tfvars.example terraform.tfvars   # only domain_name + hardening
+terraform init -backend-config=backend.hcl     # backend.hcl is a symlink to common-backend.hcl
 terraform fmt -recursive ../../
 terraform validate
 terraform plan

@@ -1,18 +1,18 @@
 # Copy to terraform.tfvars (gitignored) and fill in before the first bootstrap
 # apply.
 #
-# `terraform_state_bucket` MUST match the `bucket` value in backend.hcl. The S3
-# backend block cannot read variables, so the two are checked against each other
-# by scripts/pre-commit-check.sh instead.
+# aws_region, project_name, github_owner, github_repo, and
+# terraform_state_bucket now live in one place: infra/common.tfvars (loaded
+# automatically here via the common.auto.tfvars symlink). Only bootstrap-only
+# values remain in this file.
+#
+# `terraform_state_bucket` (in common.tfvars) MUST match the `bucket` value in
+# backend.hcl (infra/common-backend.hcl, also symlinked in). The S3 backend
+# block cannot read variables, so the two are checked against each other by
+# scripts/pre-commit-check.sh instead.
 #
 # The AWS account ID is no longer a variable — it is read from the caller's
 # identity, so this file drops into any account unchanged.
-
-aws_region             = "us-east-1"
-project_name           = "apptemplate"
-github_owner           = "Zinelaabidine"
-github_repo            = "project-template"
-terraform_state_bucket = "apptemplate-terraform-state-886601940523"
 
 # AWS allows only one GitHub Actions OIDC provider per account. Set this to
 # false if the account already has one — either from an earlier attempt of

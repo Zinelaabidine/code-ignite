@@ -139,8 +139,12 @@ if [[ -f frontend/.nvmrc ]]; then
   fi
 fi
 
-[[ -f "$TF_DIR/backend.hcl" ]] || fail "$TF_DIR/backend.hcl is missing. cp $TF_DIR/backend.hcl.example $TF_DIR/backend.hcl and fill it in."
+[[ -f "$TF_DIR/backend.hcl" ]] || fail "$TF_DIR/backend.hcl is missing. It should be a symlink to infra/common-backend.hcl — see infra/common-backend.hcl.example."
 [[ -f "$TF_DIR/terraform.tfvars" ]] || fail "$TF_DIR/terraform.tfvars is missing. cp $TF_DIR/terraform.tfvars.example $TF_DIR/terraform.tfvars and fill it in."
+[[ -f "$TF_DIR/common.auto.tfvars" ]] || fail "$TF_DIR/common.auto.tfvars is missing. It should be a symlink to infra/common.tfvars — see infra/common.tfvars.example."
+[[ -f "$TF_DIR/common-domain.auto.tfvars" ]] || fail "$TF_DIR/common-domain.auto.tfvars is missing. It should be a symlink to infra/common-domain.tfvars — see infra/common-domain.tfvars.example."
+[[ -f "infra/common.tfvars" ]] || fail "infra/common.tfvars is missing. cp infra/common.tfvars.example infra/common.tfvars and fill it in."
+[[ -f "infra/common-domain.tfvars" ]] || fail "infra/common-domain.tfvars is missing. cp infra/common-domain.tfvars.example infra/common-domain.tfvars and fill it in."
 
 # ─── AWS authentication ───────────────────────────────────────────────────────
 
@@ -173,9 +177,11 @@ CALLER_JSON="$(aws sts get-caller-identity --output json)" \
 echo "$CALLER_JSON" | jq .
 CALLER_ACCOUNT="$(jq -r '.Account' <<<"$CALLER_JSON")"
 
+# aws_region lives in infra/common.tfvars now (shared across every root via
+# the common.auto.tfvars symlink), not in $TF_DIR/terraform.tfvars.
 # [[:space:]] rather than \s: BSD sed (macOS's /usr/bin/sed) doesn't support
 # \s in -E mode, so it silently fails to match and prints the whole line back.
-AWS_REGION_VAL="$(grep -E '^[[:space:]]*aws_region[[:space:]]*=' "$TF_DIR/terraform.tfvars" | head -1 | sed -E 's/.*=[[:space:]]*"([^"]*)".*/\1/')"
+AWS_REGION_VAL="$(grep -E '^[[:space:]]*aws_region[[:space:]]*=' "infra/common.tfvars" | head -1 | sed -E 's/.*=[[:space:]]*"([^"]*)".*/\1/')"
 AWS_REGION_VAL="${AWS_REGION_VAL:-us-east-1}"
 
 echo ""

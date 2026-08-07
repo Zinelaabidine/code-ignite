@@ -46,48 +46,59 @@ TERRAFORM_ENVS=(dev staging prod)
 TERRAFORM_ROOTS=(infra/bootstrap infra/envs/dev infra/envs/staging infra/envs/prod)
 
 # ---------------------------------------------------------------------------
-# The state bucket name lives in two places that Terraform cannot reconcile on
-# its own: `bucket` in backend.hcl (where state is stored) and
-# `terraform_state_bucket` in terraform.tfvars (which builds the IAM grant on
-# that bucket). When they disagree, `terraform init` in CI fails with
-# AccessDenied — and the error points nowhere near the cause.
-#
-# This check is the reason that class of bug cannot come back.
+# The state bucket name used to live independently in two files per root
+# (backend.hcl and terraform.tfvars) across four roots — eight places that
+# could silently drift. It now lives in exactly two files at the repo root,
+# infra/common-backend.hcl (`bucket`) and infra/common.tfvars
+# (`terraform_state_bucket`), and every root's own backend.hcl /
+# common.auto.tfvars is a symlink back to those two files. So there are two
+# checks: the two shared files must agree with each other, and every root
+# must actually still be reading them via a symlink rather than a local copy
+# that could drift again.
 # ---------------------------------------------------------------------------
 step "state bucket name consistency"
-mismatches=0
-checked=0
-for root in "${TERRAFORM_ROOTS[@]}"; do
-  backend_file="$root/backend.hcl"
-  tfvars_file="$root/terraform.tfvars"
 
-  # Both are gitignored, so a fresh clone legitimately has neither.
-  [[ -f "$backend_file" && -f "$tfvars_file" ]] || continue
+COMMON_BACKEND="infra/common-backend.hcl"
+COMMON_TFVARS="infra/common.tfvars"
 
+if [[ -f "$COMMON_BACKEND" && -f "$COMMON_TFVARS" ]]; then
   # [[:space:]] rather than \s: BSD sed (macOS's /usr/bin/sed) does not support
   # \s in -E mode, so it silently fails to match and prints the whole line
   # unchanged — which then never compares equal to the other side, even when
   # the actual bucket names agree. [[:space:]] is POSIX and works on both.
-  backend_bucket="$(grep -E '^[[:space:]]*bucket[[:space:]]*=' "$backend_file" |
+  backend_bucket="$(grep -E '^[[:space:]]*bucket[[:space:]]*=' "$COMMON_BACKEND" |
     head -1 | sed -E 's/.*=[[:space:]]*"([^"]*)".*/\1/')"
-  tfvars_bucket="$(grep -E '^[[:space:]]*terraform_state_bucket[[:space:]]*=' "$tfvars_file" |
+  tfvars_bucket="$(grep -E '^[[:space:]]*terraform_state_bucket[[:space:]]*=' "$COMMON_TFVARS" |
     head -1 | sed -E 's/.*=[[:space:]]*"([^"]*)".*/\1/')"
 
-  checked=$((checked + 1))
   if [[ "$backend_bucket" != "$tfvars_bucket" ]]; then
-    echo -e "${RED}  $root${NC}" >&2
-    echo "    backend.hcl bucket:              '$backend_bucket'" >&2
-    echo "    terraform.tfvars state bucket:   '$tfvars_bucket'" >&2
-    mismatches=$((mismatches + 1))
+    echo "    $COMMON_BACKEND bucket:            '$backend_bucket'" >&2
+    echo "    $COMMON_TFVARS terraform_state_bucket: '$tfvars_bucket'" >&2
+    fail "state bucket name differs between $COMMON_BACKEND and $COMMON_TFVARS"
   fi
-done
-
-if [[ "$mismatches" -gt 0 ]]; then
-  fail "state bucket name differs between backend.hcl and terraform.tfvars in $mismatches root(s)"
-elif [[ "$checked" -eq 0 ]]; then
-  warn "no backend.hcl + terraform.tfvars pairs found — skipping (copy the .example files to set them up)"
+  pass "state bucket name consistent between $COMMON_BACKEND and $COMMON_TFVARS"
 else
-  pass "state bucket name consistent across $checked root(s)"
+  warn "$COMMON_BACKEND / $COMMON_TFVARS not found — skipping (copy the .example files to set them up)"
+fi
+
+step "shared config symlinks"
+symlink_errors=0
+for root in "${TERRAFORM_ROOTS[@]}"; do
+  for name in backend.hcl common.auto.tfvars common-domain.auto.tfvars; do
+    f="$root/$name"
+    [[ -e "$f" || -L "$f" ]] || continue # not set up yet in this root — fine
+    # infra/bootstrap doesn't declare hosted_zone_name/certificate_domain_name,
+    # so it intentionally has no common-domain.auto.tfvars symlink.
+    if [[ ! -L "$f" ]]; then
+      echo -e "${RED}  $f is a real file, not a symlink to a shared file under infra/${NC}" >&2
+      symlink_errors=$((symlink_errors + 1))
+    fi
+  done
+done
+if [[ "$symlink_errors" -gt 0 ]]; then
+  fail "$symlink_errors root(s) have a local copy instead of a symlink — shared values can drift again. Re-create with: ln -sf ../common-backend.hcl infra/bootstrap/backend.hcl (adjust relative path per root)."
+else
+  pass "every root reads shared config through a symlink"
 fi
 
 # --- Terraform format ---

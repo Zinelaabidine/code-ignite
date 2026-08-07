@@ -28,11 +28,26 @@
 #   - variables.tf         (local_dev_iam_users list)
 #
 # FIRST RUN (one-time, per AWS account):
-#   cp terraform.tfvars.example terraform.tfvars   # fill in
-#   cp backend.hcl.example backend.hcl             # same bucket name
+#   cd ../..                                              # repo root
+#   cp infra/common.tfvars.example infra/common.tfvars    # fill in, once for
+#   cp infra/common-backend.hcl.example infra/common-backend.hcl  # every root
+#   cd infra/bootstrap
+#   cp terraform.tfvars.example terraform.tfvars   # fill in bootstrap-only values
+#   ln -sf ../common-backend.hcl backend.hcl       # not `cp` — see common-backend.hcl.example
+#   ln -sf ../common.tfvars common.auto.tfvars     # not `cp` — see common.tfvars.example
 #   terraform init -backend=false
 #   terraform apply                                # creates the state bucket
 #   terraform init -backend-config=backend.hcl -migrate-state
+#
+# aws_region, project_name, github_owner, github_repo, and
+# terraform_state_bucket are no longer duplicated per root — they live once in
+# infra/common.tfvars and infra/common-backend.hcl, and every root (this one
+# plus all three infra/envs/*) picks them up through the symlinks above.
+# (hosted_zone_name / certificate_domain_name live in infra/common-domain.tfvars
+# instead, symlinked into infra/envs/* only — this root doesn't touch Route 53
+# or ACM.) Only bootstrap-only values (create_oidc_provider,
+# state_noncurrent_version_retention_days, local_dev_iam_users) stay in this
+# root's own terraform.tfvars.
 # ──────────────────────────────────────────────────────────────────────────────
 
 locals {
