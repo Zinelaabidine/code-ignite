@@ -19,7 +19,7 @@ output "local_dev_role_arn" {
 }
 
 output "terraform_state_bucket" {
-  description = "Name of the S3 bucket used for Terraform remote state. Use this value for `bucket` in every root's backend.hcl."
+  description = "Name of the S3 bucket used for Terraform remote state ({project_name}-terraform-state-{account_id})."
   value       = aws_s3_bucket.terraform_state.id
 }
 

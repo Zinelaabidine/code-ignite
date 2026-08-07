@@ -18,14 +18,14 @@ module "static_site" {
   environment  = "dev"
   aws_region   = var.aws_region
 
-  domain_name             = var.domain_name
+  domain_name             = local.domain_name
   hosted_zone_name        = var.hosted_zone_name
   certificate_domain_name = var.certificate_domain_name
 
   github_owner = var.github_owner
   github_repo  = var.github_repo
 
-  terraform_state_bucket = var.terraform_state_bucket
+  terraform_state_bucket = local.terraform_state_bucket
 
   # The local-dev IAM role is account-global and shared by all environments.
   # It only exists if infra/bootstrap's local_dev_iam_users is non-empty — an

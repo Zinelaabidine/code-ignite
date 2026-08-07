@@ -139,12 +139,9 @@ if [[ -f frontend/.nvmrc ]]; then
   fi
 fi
 
-[[ -f "$TF_DIR/backend.hcl" ]] || fail "$TF_DIR/backend.hcl is missing. It should be a symlink to infra/common-backend.hcl — see infra/common-backend.hcl.example."
 [[ -f "$TF_DIR/terraform.tfvars" ]] || fail "$TF_DIR/terraform.tfvars is missing. cp $TF_DIR/terraform.tfvars.example $TF_DIR/terraform.tfvars and fill it in."
 [[ -f "$TF_DIR/common.auto.tfvars" ]] || fail "$TF_DIR/common.auto.tfvars is missing. It should be a symlink to infra/common.tfvars — see infra/common.tfvars.example."
-[[ -f "$TF_DIR/common-domain.auto.tfvars" ]] || fail "$TF_DIR/common-domain.auto.tfvars is missing. It should be a symlink to infra/common-domain.tfvars — see infra/common-domain.tfvars.example."
 [[ -f "infra/common.tfvars" ]] || fail "infra/common.tfvars is missing. cp infra/common.tfvars.example infra/common.tfvars and fill it in."
-[[ -f "infra/common-domain.tfvars" ]] || fail "infra/common-domain.tfvars is missing. cp infra/common-domain.tfvars.example infra/common-domain.tfvars and fill it in."
 
 # ─── AWS authentication ───────────────────────────────────────────────────────
 
@@ -228,10 +225,8 @@ fi
 
 if [[ "$DEPLOY_INFRA" == true ]]; then
   step "terraform init ($TF_DIR)"
-  # -reconfigure: a directory previously init'd against a different bucket
-  # (account switch, renamed state bucket, stale local experiment) would
-  # otherwise keep using that cached backend instead of backend.hcl.
-  terraform -chdir="$TF_DIR" init -input=false -reconfigure -backend-config=backend.hcl
+  STATE_BUCKET="$(./scripts/state-bucket-name.sh)"
+  terraform -chdir="$TF_DIR" init -input=false -reconfigure -backend-config="bucket=${STATE_BUCKET}"
 
   # Same chicken-and-egg fix as deploy.yml: the deploy/local-dev role's own
   # permissions are defined in this Terraform, so a brand-new environment must
@@ -287,10 +282,8 @@ if [[ "$DEPLOY_INFRA" == true ]]; then
   pass "terraform apply complete"
 else
   step "terraform init ($TF_DIR) — reading existing state only"
-  # -reconfigure: a directory previously init'd against a different bucket
-  # (account switch, renamed state bucket, stale local experiment) would
-  # otherwise keep using that cached backend instead of backend.hcl.
-  terraform -chdir="$TF_DIR" init -input=false -reconfigure -backend-config=backend.hcl
+  STATE_BUCKET="$(./scripts/state-bucket-name.sh)"
+  terraform -chdir="$TF_DIR" init -input=false -reconfigure -backend-config="bucket=${STATE_BUCKET}"
 fi
 
 # ─── Frontend build + deploy ────────────────────────────────────────────────────

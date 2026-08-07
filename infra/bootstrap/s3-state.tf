@@ -5,7 +5,7 @@
 # versioned, encrypted, TLS-only, and protected against destroy.
 
 resource "aws_s3_bucket" "terraform_state" {
-  bucket = var.terraform_state_bucket
+  bucket = local.terraform_state_bucket
 
   # Deleting this bucket orphans every managed resource in the account and
   # leaves no way to plan against them. Removing this block is a deliberate,
@@ -15,7 +15,7 @@ resource "aws_s3_bucket" "terraform_state" {
   }
 
   tags = {
-    Name = var.terraform_state_bucket
+    Name = local.terraform_state_bucket
   }
 }
 

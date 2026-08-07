@@ -123,8 +123,8 @@ data "aws_iam_policy_document" "bootstrap_ci_permissions" {
       "s3:DeleteObject",
     ]
     resources = [
-      "arn:aws:s3:::${var.terraform_state_bucket}",
-      "arn:aws:s3:::${var.terraform_state_bucket}/*",
+      "arn:aws:s3:::${local.terraform_state_bucket}",
+      "arn:aws:s3:::${local.terraform_state_bucket}/*",
     ]
   }
 
@@ -150,7 +150,7 @@ data "aws_iam_policy_document" "bootstrap_ci_permissions" {
       "s3:PutBucketTagging",
       "s3:GetBucketLocation",
     ]
-    resources = ["arn:aws:s3:::${var.terraform_state_bucket}"]
+    resources = ["arn:aws:s3:::${local.terraform_state_bucket}"]
   }
 
   # ListAllMyBuckets and GetCallerIdentity have no resource-level scope.

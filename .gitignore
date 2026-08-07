@@ -18,10 +18,15 @@ override.tf.json
 # IAM principals allowed to assume the local-dev role. Only the examples are
 # committed; CI supplies the real values through TF_VAR_* environment
 # variables sourced from GitHub Actions variables.
+#
+# `*.auto.tfvars` symlinks load infra/common.tfvars — keep those tracked.
+*.tfvars
 !*.tfvars.example
+!*.auto.tfvars
 
-# Backend configuration (the state bucket name), supplied at init time with
-# -backend-config. Committed only as an example.
+# Backend configuration (bucket name) is passed at init via
+# scripts/state-bucket-name.sh — not committed. Ignore accidental local copies.
+backend.hcl
 !backend.hcl.example
 
 # NOTE: .terraform.lock.hcl is deliberately NOT ignored. HashiCorp's guidance is

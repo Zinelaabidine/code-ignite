@@ -17,14 +17,14 @@ module "static_site" {
   environment  = "staging"
   aws_region   = var.aws_region
 
-  domain_name             = var.domain_name
+  domain_name             = local.domain_name
   hosted_zone_name        = var.hosted_zone_name
   certificate_domain_name = var.certificate_domain_name
 
   github_owner = var.github_owner
   github_repo  = var.github_repo
 
-  terraform_state_bucket = var.terraform_state_bucket
+  terraform_state_bucket = local.terraform_state_bucket
 
   mfa_configuration      = var.mfa_configuration
   advanced_security_mode = var.advanced_security_mode

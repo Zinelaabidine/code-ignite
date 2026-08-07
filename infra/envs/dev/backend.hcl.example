@@ -1,8 +1,6 @@
-# Copy to backend.hcl (gitignored) and set the state bucket name.
+# State bucket name is not stored here. At init, pass:
 #
-#   terraform init -backend-config=backend.hcl
+#   terraform init -backend-config="bucket=$(../../scripts/state-bucket-name.sh)"
 #
-# This value MUST equal `terraform_state_bucket` in terraform.tfvars.
-# scripts/pre-commit-check.sh asserts that they match.
-
-bucket = "CHANGE-ME-terraform-state"
+# (from this env root, with AWS credentials). Bucket is derived from project_name
+# in infra/common.tfvars and the current AWS account.

@@ -55,7 +55,7 @@ variable "github_repo" {
 }
 
 variable "terraform_state_bucket" {
-  description = "Name of the S3 bucket holding Terraform remote state. Must equal the `bucket` in infra/envs/<env>/backend.hcl; the deploy role is granted read/write on it."
+  description = "Name of the S3 bucket holding Terraform remote state. Must match {project_name}-terraform-state-{account_id} used at terraform init."
   type        = string
 }
 

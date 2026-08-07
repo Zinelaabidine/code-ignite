@@ -1,26 +1,10 @@
-# Copy to terraform.tfvars (gitignored) and fill in.
-#
-# aws_region, project_name, github_owner, github_repo, and
-# terraform_state_bucket live in infra/common.tfvars; hosted_zone_name and
-# certificate_domain_name live in infra/common-domain.tfvars. Both are loaded
-# automatically here via the common.auto.tfvars and common-domain.auto.tfvars
-# symlinks. Only this environment's domain and hardening knobs stay here.
-#
-# terraform_state_bucket (in common.tfvars) MUST equal the `bucket` in
-# backend.hcl (infra/common-backend.hcl, also symlinked in) —
-# scripts/pre-commit-check.sh asserts that they match.
-
-domain_name = "apptemplate-dev.openspacenexus.store"
+# Copy to terraform.tfvars (gitignored). Shared project identity, DNS zone, GitHub,
+# and AWS account live in infra/common.tfvars (via common.auto.tfvars symlink).
+# Site hostname and state bucket are derived from project_name — no need to set
+# domain_name or terraform_state_bucket here unless you use domain_name_override.
 
 # ─── Hardening ────────────────────────────────────────────────────────────────
 
-# Cognito MFA (TOTP): OFF | OPTIONAL | ON
-mfa_configuration = "OFF"
-
-# Cognito threat protection: OFF | AUDIT | ENFORCED.
-# AUDIT and ENFORCED are billed per monthly active user.
+mfa_configuration      = "OFF"
 advanced_security_mode = "OFF"
-
-# WAF managed rules + per-IP rate limiting on CloudFront. Billed per web ACL,
-# per rule, and per million requests.
-enable_waf = false
+enable_waf             = false

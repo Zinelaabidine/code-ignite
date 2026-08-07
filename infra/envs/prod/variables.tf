@@ -15,9 +15,10 @@ variable "project_name" {
   type        = string
 }
 
-variable "domain_name" {
-  description = "Fully qualified domain this environment is served from (e.g. \"myapp-dev.example.com\")."
+variable "domain_name_override" {
+  description = "Optional FQDN override. When null, defaults to \"{project_name}.{hosted_zone_name}\"."
   type        = string
+  default     = null
 }
 
 variable "hosted_zone_name" {
@@ -37,11 +38,6 @@ variable "github_owner" {
 
 variable "github_repo" {
   description = "GitHub repository name, without the owner prefix."
-  type        = string
-}
-
-variable "terraform_state_bucket" {
-  description = "S3 bucket holding Terraform remote state. MUST equal the `bucket` in backend.hcl."
   type        = string
 }
 

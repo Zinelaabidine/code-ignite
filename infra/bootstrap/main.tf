@@ -28,29 +28,21 @@
 #   - variables.tf         (local_dev_iam_users list)
 #
 # FIRST RUN (one-time, per AWS account):
-#   cd ../..                                              # repo root
-#   cp infra/common.tfvars.example infra/common.tfvars    # fill in, once for
-#   cp infra/common-backend.hcl.example infra/common-backend.hcl  # every root
+#   cp infra/common.tfvars.example infra/common.tfvars   # project_name once
 #   cd infra/bootstrap
-#   cp terraform.tfvars.example terraform.tfvars   # fill in bootstrap-only values
-#   ln -sf ../common-backend.hcl backend.hcl       # not `cp` — see common-backend.hcl.example
-#   ln -sf ../common.tfvars common.auto.tfvars     # not `cp` — see common.tfvars.example
+#   cp terraform.tfvars.example terraform.tfvars
+#   ln -sf ../common.tfvars common.auto.tfvars
 #   terraform init -backend=false
-#   terraform apply                                # creates the state bucket
-#   terraform init -backend-config=backend.hcl -migrate-state
+#   terraform apply
+#   terraform init -backend-config="bucket=$(../../scripts/state-bucket-name.sh)" -migrate-state
 #
-# aws_region, project_name, github_owner, github_repo, and
-# terraform_state_bucket are no longer duplicated per root — they live once in
-# infra/common.tfvars and infra/common-backend.hcl, and every root (this one
-# plus all three infra/envs/*) picks them up through the symlinks above.
-# (hosted_zone_name / certificate_domain_name live in infra/common-domain.tfvars
-# instead, symlinked into infra/envs/* only — this root doesn't touch Route 53
-# or ACM.) Only bootstrap-only values (create_oidc_provider,
-# state_noncurrent_version_retention_days, local_dev_iam_users) stay in this
-# root's own terraform.tfvars.
+# Shared values live in infra/common.tfvars (symlinked as common.auto.tfvars).
+# State bucket and site FQDNs are derived from project_name — not set elsewhere.
 # ──────────────────────────────────────────────────────────────────────────────
 
 locals {
+  terraform_state_bucket = "${var.project_name}-terraform-state-${data.aws_caller_identity.current.account_id}"
+
   github_repo_full = "${var.github_owner}/${var.github_repo}"
 
   # Must match the `environment:` values used in .github/workflows/deploy.yml.

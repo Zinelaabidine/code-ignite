@@ -1,42 +1,15 @@
-# Single source of truth for the values shared by EVERY Terraform root in
-# this repo, including infra/bootstrap. (Domain-related values that
-# infra/bootstrap doesn't use — hosted_zone_name, certificate_domain_name —
-# live in the separate common-domain.tfvars instead; see that file.)
-#
-# Copy to common.tfvars (gitignored) and fill in once:
+# Copy to infra/common.tfvars (gitignored) and fill in once for every root.
 #
 #   cp infra/common.tfvars.example infra/common.tfvars
 #
-# Each root picks this up automatically — no -var-file flag needed — via a
-# `common.auto.tfvars` symlink that points back to this one file:
-#
-#   infra/bootstrap/common.auto.tfvars    -> ../common.tfvars
-#   infra/envs/dev/common.auto.tfvars     -> ../../common.tfvars
-#   infra/envs/staging/common.auto.tfvars -> ../../common.tfvars
-#   infra/envs/prod/common.auto.tfvars    -> ../../common.tfvars
-#
-# Terraform auto-loads any *.auto.tfvars file in the working directory, so
-# `terraform plan` / `apply` need no extra flags. Because every root reads
-# the same underlying file through its symlink, changing a value here changes
-# it everywhere at once — there is nowhere else to edit these five values.
-#
-# What stays OUT of this file:
-#   - hosted_zone_name, certificate_domain_name (common-domain.tfvars — every
-#     infra/envs/* root only, bootstrap doesn't declare these variables)
-#   - domain_name              (differs per environment: dev/staging/prod)
-#   - mfa_configuration, advanced_security_mode, enable_waf (hardening knobs)
-#   - bootstrap-only vars: create_oidc_provider, local_dev_iam_users,
-#     state_noncurrent_version_retention_days
-#
-# In CI, none of this file is used — deploy.yml sources the same values from
-# GitHub Actions repository variables via TF_VAR_*. Keep both in sync when a
-# value here changes (see README.md "Forking this template").
+# Loaded automatically via common.auto.tfvars symlinks in each Terraform root.
+# Set project_name here only — state bucket and site FQDNs are derived.
 
 aws_region   = "us-east-1"
-project_name = "apptemplate"
+project_name = "myapp"
 
 github_owner = "your-github-owner"
 github_repo  = "your-repo-name"
 
-# MUST equal `bucket` in infra/common-backend.hcl — see that file for why.
-terraform_state_bucket = "CHANGE-ME-terraform-state"
+hosted_zone_name        = "example.com"
+certificate_domain_name = "*.example.com"

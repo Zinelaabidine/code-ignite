@@ -40,14 +40,16 @@ variable "github_repo" {
   type        = string
 }
 
-variable "terraform_state_bucket" {
-  description = "Name of the S3 bucket holding Terraform remote state. MUST equal the `bucket` value in backend.hcl — an S3 backend block cannot read variables, so the two are kept in sync by scripts/pre-commit-check.sh rather than by Terraform."
+variable "hosted_zone_name" {
+  description = "Unused in bootstrap; declared so infra/common.tfvars can load via common.auto.tfvars without undeclared-variable errors."
   type        = string
+  default     = ""
+}
 
-  validation {
-    condition     = can(regex("^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$", var.terraform_state_bucket))
-    error_message = "terraform_state_bucket must be a valid S3 bucket name (3-63 chars, lowercase)."
-  }
+variable "certificate_domain_name" {
+  description = "Unused in bootstrap; declared so infra/common.tfvars can load via common.auto.tfvars without undeclared-variable errors."
+  type        = string
+  default     = ""
 }
 
 variable "state_noncurrent_version_retention_days" {

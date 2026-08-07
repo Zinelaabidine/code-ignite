@@ -18,14 +18,13 @@
 # REQUIRED REPOSITORY VARIABLES (Settings → Secrets and variables → Actions):
 #   AWS_ACCOUNT_ID     e.g. 123456789012
 #   AWS_REGION         e.g. us-east-1
-#   PROJECT_NAME       must match project_name in infra/bootstrap
-#   TF_STATE_BUCKET    the Terraform state bucket created by bootstrap
+#   PROJECT_NAME       project slug (e.g. myapp) — also drives site hostnames + state bucket
+#   AWS_ACCOUNT_ID     12-digit account ID — state bucket is {PROJECT_NAME}-terraform-state-{AWS_ACCOUNT_ID}
 #
 # REQUIRED PER-ENVIRONMENT VARIABLES (Settings → Environments → <env>):
-#   DOMAIN_NAME              e.g. myapp-dev.example.com
-#   HOSTED_ZONE_NAME         e.g. example.com
-#   CERTIFICATE_DOMAIN_NAME  e.g. *.example.com
+#   (none required — DOMAIN_NAME is derived from PROJECT_NAME + HOSTED_ZONE_NAME)
 # Optional per-environment overrides:
+#   DOMAIN_NAME_OVERRIDE       non-standard FQDN (maps to TF_VAR_domain_name_override)
 #   MFA_CONFIGURATION (OFF|OPTIONAL|ON), ADVANCED_SECURITY_MODE
 #   (OFF|AUDIT|ENFORCED), ENABLE_WAF (true|false)
 #
@@ -164,8 +163,7 @@ jobs:
         env:
           AWS_ACCOUNT_ID: ${{ vars.AWS_ACCOUNT_ID }}
           PROJECT_NAME: ${{ vars.PROJECT_NAME }}
-          TF_STATE_BUCKET: ${{ vars.TF_STATE_BUCKET }}
-          DOMAIN_NAME: ${{ vars.DOMAIN_NAME }}
+          AWS_ACCOUNT_ID: ${{ vars.AWS_ACCOUNT_ID }}
           HOSTED_ZONE_NAME: ${{ vars.HOSTED_ZONE_NAME }}
           CERTIFICATE_DOMAIN_NAME: ${{ vars.CERTIFICATE_DOMAIN_NAME }}
         run: |
@@ -173,8 +171,7 @@ jobs:
           missing=()
           [ -n "$AWS_ACCOUNT_ID" ]          || missing+=("AWS_ACCOUNT_ID")
           [ -n "$PROJECT_NAME" ]            || missing+=("PROJECT_NAME")
-          [ -n "$TF_STATE_BUCKET" ]         || missing+=("TF_STATE_BUCKET")
-          [ -n "$DOMAIN_NAME" ]             || missing+=("DOMAIN_NAME")
+          [ -n "$AWS_ACCOUNT_ID" ]          || missing+=("AWS_ACCOUNT_ID")
           [ -n "$HOSTED_ZONE_NAME" ]        || missing+=("HOSTED_ZONE_NAME")
           [ -n "$CERTIFICATE_DOMAIN_NAME" ] || missing+=("CERTIFICATE_DOMAIN_NAME")
           if [ ${#missing[@]} -gt 0 ]; then
@@ -212,12 +209,11 @@ jobs:
       # identifying is committed to the repo.
       TF_VAR_aws_region: ${{ vars.AWS_REGION || 'us-east-1' }}
       TF_VAR_project_name: ${{ vars.PROJECT_NAME }}
-      TF_VAR_domain_name: ${{ vars.DOMAIN_NAME }}
+      TF_VAR_domain_name_override: ${{ vars.DOMAIN_NAME_OVERRIDE }}
       TF_VAR_hosted_zone_name: ${{ vars.HOSTED_ZONE_NAME }}
       TF_VAR_certificate_domain_name: ${{ vars.CERTIFICATE_DOMAIN_NAME }}
       TF_VAR_github_owner: ${{ github.repository_owner }}
       TF_VAR_github_repo: ${{ github.event.repository.name }}
-      TF_VAR_terraform_state_bucket: ${{ vars.TF_STATE_BUCKET }}
       TF_VAR_mfa_configuration: ${{ vars.MFA_CONFIGURATION || 'OFF' }}
       TF_VAR_advanced_security_mode: ${{ vars.ADVANCED_SECURITY_MODE || 'OFF' }}
       TF_VAR_enable_waf: ${{ vars.ENABLE_WAF || 'false' }}
@@ -256,15 +252,13 @@ jobs:
           terraform_version: ${{ env.TF_VERSION }}
           terraform_wrapper: false
 
-      # The state bucket name comes from one place — the TF_STATE_BUCKET
-      # variable — and feeds both the backend and the IAM grant on that bucket
-      # (TF_VAR_terraform_state_bucket above). They cannot drift apart.
+      # Bucket name: {PROJECT_NAME}-terraform-state-{AWS_ACCOUNT_ID} — same as Terraform locals.
       - name: Terraform Init
         working-directory: ${{ steps.set-env.outputs.tf_dir }}
         run: |
           set -euo pipefail
           terraform init -input=false -no-color \
-            -backend-config="bucket=${{ vars.TF_STATE_BUCKET }}"
+            -backend-config="bucket=${{ vars.PROJECT_NAME }}-terraform-state-${{ vars.AWS_ACCOUNT_ID }}"
 
       # The deploy role's own permissions live in Terraform, so a fresh
       # environment is a chicken-and-egg problem: the role needs the managed

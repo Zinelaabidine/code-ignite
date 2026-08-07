@@ -31,8 +31,7 @@
 # REQUIRED REPOSITORY VARIABLES (Settings → Secrets and variables → Actions):
 #   AWS_ACCOUNT_ID       e.g. 123456789012
 #   AWS_REGION           e.g. us-east-1
-#   PROJECT_NAME         must match project_name in infra/bootstrap/terraform.tfvars
-#   TF_STATE_BUCKET      must match the bucket in backend.hcl
+#   PROJECT_NAME         project slug — state bucket is {PROJECT_NAME}-terraform-state-{AWS_ACCOUNT_ID}
 # Optional:
 #   LOCAL_DEV_IAM_USERS  JSON array of IAM ARNs allowed to assume the local-dev
 #                        role, e.g. ["arn:aws:iam::123456789012:user/alice"].
@@ -86,7 +85,6 @@ jobs:
       TF_VAR_project_name: ${{ vars.PROJECT_NAME }}
       TF_VAR_github_owner: ${{ github.repository_owner }}
       TF_VAR_github_repo: ${{ github.event.repository.name }}
-      TF_VAR_terraform_state_bucket: ${{ vars.TF_STATE_BUCKET }}
       TF_VAR_local_dev_iam_users: ${{ vars.LOCAL_DEV_IAM_USERS || '[]' }}
     steps:
       - name: Checkout code
@@ -98,7 +96,6 @@ jobs:
           missing=()
           [ -n "${{ vars.AWS_ACCOUNT_ID }}" ]  || missing+=("AWS_ACCOUNT_ID")
           [ -n "${{ vars.PROJECT_NAME }}" ]    || missing+=("PROJECT_NAME")
-          [ -n "${{ vars.TF_STATE_BUCKET }}" ] || missing+=("TF_STATE_BUCKET")
           if [ ${#missing[@]} -gt 0 ]; then
             echo "::error::Missing GitHub Actions variables: ${missing[*]}"
             exit 1
@@ -126,7 +123,7 @@ jobs:
         run: |
           set -euo pipefail
           terraform init -input=false -no-color \
-            -backend-config="bucket=${{ vars.TF_STATE_BUCKET }}"
+            -backend-config="bucket=${{ vars.PROJECT_NAME }}-terraform-state-${{ vars.AWS_ACCOUNT_ID }}"
 
       - name: Terraform Plan
         working-directory: infra/bootstrap

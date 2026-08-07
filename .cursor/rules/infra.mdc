@@ -7,8 +7,28 @@ alwaysApply: false
 # Infrastructure
 
 Terraform `>= 1.10`, AWS provider `~> 6.0`, region `us-east-1`. Remote S3 state
-only — init with `-backend-config=backend.hcl`; bucket must match
-`var.terraform_state_bucket` (pre-commit asserts). Commit `.terraform.lock.hcl`.
+only — `terraform init -backend-config="bucket=$(../../scripts/state-bucket-name.sh)"`
+(from env root; needs AWS creds). Commit `.terraform.lock.hcl`.
+
+## Shared configuration (single source of truth)
+
+**Set `project_name` in one file only:** `infra/common.tfvars` (copy from
+`common.tfvars.example`). Every root loads it via committed `common.auto.tfvars`
+symlinks — opening `common.auto.tfvars` in an env root is the same file, not a
+second copy.
+
+Also set in that file: `aws_region`, `github_owner`, `github_repo`,
+`hosted_zone_name`, `certificate_domain_name`.
+
+**Derived (never duplicate `project_name` elsewhere):**
+
+- State bucket: `{project_name}-terraform-state-{account_id}` — Terraform
+  `locals` use `data.aws_caller_identity`; init uses `scripts/state-bucket-name.sh`.
+- Site FQDNs: `{project_name}-dev|staging.{zone}`, prod `{project_name}.{zone}` —
+  `locals.tf` per env; optional `domain_name_override`.
+
+Per-env `terraform.tfvars` = hardening only. Bootstrap-only vars in
+`infra/bootstrap/terraform.tfvars`.
 
 ## Layout
 
@@ -36,5 +56,5 @@ SSE, versioning. Site bucket policy: OAC + TLS-only deny where applicable.
 
 ## Commands
 
-From `infra/envs/<env>`: `terraform init -backend-config=backend.hcl`, `validate`, `plan`.
-Never `-auto-approve` in prod.
+From `infra/envs/<env>`: `terraform init -backend-config="bucket=$(../../scripts/state-bucket-name.sh)"`,
+then `validate`, `plan`. Never `-auto-approve` in prod.
