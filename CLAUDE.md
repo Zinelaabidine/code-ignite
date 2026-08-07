@@ -3,6 +3,10 @@
 > Authoritative architectural memory and coding-session contract for AI
 > assistants working in this repository. Read it in full before writing any
 > code or infrastructure changes.
+>
+> **Token tip:** Scoped, shorter rules live in `.cursor/rules/*.mdc` (loaded by
+> file path). You can replace this file with a brief index once those rules are
+> trusted, and rely on `project-core.mdc` plus folder rules instead.
 
 ---
 
@@ -61,13 +65,14 @@ account-global, so exactly one environment may own its policy attachments.
 │   ├── dependabot.yml          # npm, github-actions, terraform
 │   ├── CODEOWNERS
 │   └── pull_request_template.md
-├── frontend/                   # ALL application code lives here
+├── frontend/                   # Browser app (Next.js static export)
 │   ├── app/                    # App Router routes, root layout, globals.css
 │   ├── components/
 │   │   ├── layout/             # AuthGate, AmplifyProvider, BrandMark
 │   │   ├── home/               # authenticated placeholder
 │   │   └── ui/                 # shadcn/ui primitives
 │   └── lib/                    # env contract, auth config, cn() helper
+├── backend/                    # Server-side app code when added (empty in template)
 ├── infra/                      # ALL infrastructure lives here (Terraform only)
 │   ├── bootstrap/              # one-time state bucket + OIDC + IAM roles
 │   ├── envs/{dev,staging,prod}/
@@ -79,8 +84,9 @@ account-global, so exactly one environment may own its policy attachments.
 
 - **Infrastructure changes belong exclusively in `infra/`.** Never edit a `.tf`
   file to work around an application bug — fix the application.
-- **Application logic belongs exclusively in `frontend/`.** Never embed logic
-  in `user_data`, inline Lambda code, or Terraform `local-exec` provisioners.
+- **Client application logic belongs in `frontend/`.** **Server-side logic belongs
+  in `backend/`** when present. Never embed logic in `user_data`, inline Lambda
+  code, or Terraform `local-exec` provisioners.
 - **Secrets never enter the repo.** Cognito IDs are public build-time values
   and are fine; anything else belongs in GitHub environment secrets.
 - **Nothing identifying is committed.** Domain, GitHub owner, project slug and
@@ -396,6 +402,8 @@ fix(infra): <subject>         # policy correction, security fix
 refactor(infra): <subject>    # restructure, plan is a no-op
 feat(frontend): <subject>     # new component, page, or hook
 fix(frontend): <subject>      # bug fix in the UI layer
+feat(backend): <subject>      # API, worker, or server-side module
+fix(backend): <subject>       # server-side bug fix
 chore(ci): <subject>          # workflow change
 chore: <subject>              # fmt, version bump, comment update
 ```

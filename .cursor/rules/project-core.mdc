@@ -1,0 +1,41 @@
+---
+description: Repo architecture, folder boundaries, environments
+alwaysApply: true
+---
+
+# Project core
+
+Static Next.js on S3/CloudFront; Cognito via Amplify in the browser. Terraform
+for all AWS; GitHub Actions + OIDC deploy (no long-lived AWS keys in CI).
+
+| Environment | Branch   | Terraform root        |
+|-------------|----------|------------------------|
+| dev         | dev      | infra/envs/dev         |
+| staging     | staging  | infra/envs/staging     |
+| prod        | main     | infra/envs/prod        |
+
+## Folder boundaries
+
+- `frontend/` — UI and client-only app logic (static export).
+- `backend/` — server-side app logic when added (API, workers).
+- `infra/` — Terraform only; no app logic in provisioners or inline Lambda.
+- Fix app bugs in app code; never patch around them in `.tf` files.
+
+Secrets: Cognito pool/client IDs are public build-time values; everything else
+in GitHub env secrets or local gitignored tfvars. No identifying values in git.
+
+Bootstrap (`infra/bootstrap`) is manual and separate from deploy workflows.
+
+## Scoped rules
+
+Detailed standards load from `.cursor/rules/` by path:
+
+- `frontend.mdc` → `frontend/**`
+- `backend.mdc` → `backend/**`
+- `infra.mdc` → `infra/**`
+
+Long-form reference (optional): root `CLAUDE.md`.
+
+## Commits
+
+`feat(infra|frontend|backend):`, `fix(...)`, `chore(ci):`, etc.

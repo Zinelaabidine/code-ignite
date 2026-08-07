@@ -1,0 +1,40 @@
+---
+description: Terraform layout, IAM, S3, remote state, deploy safety
+globs: infra/**
+alwaysApply: false
+---
+
+# Infrastructure
+
+Terraform `>= 1.10`, AWS provider `~> 6.0`, region `us-east-1`. Remote S3 state
+only — init with `-backend-config=backend.hcl`; bucket must match
+`var.terraform_state_bucket` (pre-commit asserts). Commit `.terraform.lock.hcl`.
+
+## Layout
+
+- One `.tf` file per AWS service/concern under `infra/modules/static-site/`.
+- New compute/API: new module + new `.tf` files — not inline app logic in HCL.
+- `local.name_prefix` = `"${var.project_name}-${var.environment}"` for names.
+
+## IAM
+
+- No `*` in `actions`. No `*` in `resources` when ARN is known — comment exceptions.
+- Use `data.aws_caller_identity.current` / `local.account_id`, not hardcoded accounts.
+- GitHub OIDC trust pins `sub` to `repo:<owner>/<repo>:environment:<env>`.
+- Policy changes: `depends_on` matching `time_sleep` with policy-hash triggers.
+
+## S3 buckets
+
+Each bucket needs: public access block (all true), ownership BucketOwnerEnforced,
+SSE, versioning. Site bucket policy: OAC + TLS-only deny where applicable.
+
+## Safety
+
+- `prevent_destroy` on stateful resources; treat unexpected destroys as blockers.
+- `terraform fmt -recursive` before commit. Variables/outputs need descriptions.
+- No `# TODO` / `REPLACE_ME` in committed HCL.
+
+## Commands
+
+From `infra/envs/<env>`: `terraform init -backend-config=backend.hcl`, `validate`, `plan`.
+Never `-auto-approve` in prod.

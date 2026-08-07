@@ -1,0 +1,31 @@
+---
+description: Server-side app code conventions (when backend exists)
+globs: backend/**
+alwaysApply: false
+---
+
+# Backend
+
+This folder holds **application** code for server-side features. AWS wiring lives
+in `infra/` (one service → one `.tf` file); the UI stays in `frontend/`.
+
+## Principles
+
+- Add Lambda/API Gateway, containers, or other compute only when a feature needs
+  it — not preemptively.
+- Validate Cognito JWTs at the API boundary; do not trust client-only checks for
+  authorization.
+- Secrets via env/SSM/Secrets Manager — never committed. Same GitHub OIDC deploy
+  model; extend IAM in Terraform with least privilege.
+- Prefer typed handlers, explicit error responses, and shared domain types (mirror
+  frontend strict TypeScript where the stack is TS).
+
+## Infra pairing
+
+New backend surface → new or extended module under `infra/modules/`, outputs for
+URLs/ARNs, frontend reads public endpoints through `lib/env.ts` if needed.
+
+## Checks
+
+Add CI steps when code exists (lint, test, build/package). Match Node `>=24` if
+using TypeScript unless the runtime dictates otherwise.

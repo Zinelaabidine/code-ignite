@@ -1,0 +1,36 @@
+---
+description: Next.js static export, TypeScript, Amplify auth, UI conventions
+globs: frontend/**
+alwaysApply: false
+---
+
+# Frontend
+
+Next.js 16 App Router, **static export** (`output: "export"`). No Server Actions,
+route handlers, ISR, or `next/image` optimization. Node `>=24`.
+
+## TypeScript
+
+- Strict + `noUncheckedIndexedAccess`; never `any` — use `unknown` and narrow.
+- Prefer `type` over `interface` for props; shared types in `types/`.
+- Env only via `lib/env.ts` (throws at build if missing). No raw
+  `process.env.NEXT_PUBLIC_*`.
+
+## App structure
+
+- Routes in `app/` only — no `pages/`.
+- Server Components default; `"use client"` only for hooks, events, browser APIs.
+- Auth: configure in `lib/auth/amplifyClient.ts` at module load; gate with
+  `<AuthGate>`; root `<AmplifyProvider>`.
+- Tokens: CookieStorage override in amplifyClient — not localStorage/sessionStorage.
+- Auth UI must defer until after hydration (client session vs SSR HTML).
+- No CSP today — treat new scripts/deps as token-exfiltration risk (see SECURITY.md).
+
+## UI
+
+- Build on `components/ui/` (shadcn). Tailwind + `cn()` from `lib/utils.ts`.
+- Theme tokens: `--nord-*` in `app/globals.css`.
+
+## Checks before merge
+
+`npm run build`, `lint`, `typecheck`, `test`, `format:check`.

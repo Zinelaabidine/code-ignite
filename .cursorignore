@@ -1,0 +1,7 @@
+# Reduce index noise for AI context (does not affect git)
+**/node_modules/
+**/.next/
+**/out/
+**/.terraform/
+**/package-lock.json
+frontend/public/
