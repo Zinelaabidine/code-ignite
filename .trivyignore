@@ -6,21 +6,26 @@
 # resource changes.
 
 # AVD-AWS-0089 — S3 bucket does not have logging enabled.
-# Applies to the access log bucket itself. Pointing a log bucket at itself
+# Applies to the access log bucket itself (pointing a log bucket at itself
 # creates a feedback loop, where each log write generates another log entry;
-# AWS recommends against it. The site bucket and CloudFront both log into it,
-# and the state bucket is written only by Terraform, whose own audit trail is
-# CloudTrail plus the state file's version history.
+# AWS recommends against it — the site bucket and CloudFront both log into
+# it), the state bucket (written only by Terraform, whose own audit trail is
+# CloudTrail plus the state file's version history), and the run pipeline's
+# jobs bucket (infra/modules/run-pipeline/s3-jobs.tf — every object expires
+# within days by design; access logging a bucket with no durable content adds
+# cost and noise for no retained signal).
 AVD-AWS-0089
 
 # AVD-AWS-0132 — S3 bucket does not encrypt data with a customer managed key.
-# All three buckets (site, log, Terraform state) use SSE-S3 (AES256), which is
-# explicitly sanctioned in CLAUDE.md ("AES256 (or aws:kms in prod)"). A
-# customer-managed KMS key costs money per key per month and adds rotation and
-# key-policy overhead that buys nothing here: the site bucket holds only public
-# static assets served through CloudFront, the log bucket holds access logs
-# (and per AWS docs, SSE-KMS is not even supported as a target for S3 server
-# access logging — see the comment in s3-logs.tf), and the state bucket's
-# sensitivity is already addressed by TLS-only access, versioning, and a
-# private-by-default policy. Revisit for prod if compliance ever requires CMKs.
+# Every bucket in this repo (site, log, Terraform state, and the run
+# pipeline's jobs bucket) uses SSE-S3 (AES256), which is explicitly sanctioned
+# in CLAUDE.md ("AES256 (or aws:kms in prod)"). A customer-managed KMS key
+# costs money per key per month and adds rotation and key-policy overhead that
+# buys nothing here: the site bucket holds only public static assets served
+# through CloudFront, the log bucket holds access logs (and per AWS docs,
+# SSE-KMS is not even supported as a target for S3 server access logging —
+# see the comment in s3-logs.tf), the state bucket's sensitivity is already
+# addressed by TLS-only access, versioning, and a private-by-default policy,
+# and the jobs bucket holds only short-lived job code/output behind the same
+# TLS-only policy. Revisit for prod if compliance ever requires CMKs.
 AVD-AWS-0132

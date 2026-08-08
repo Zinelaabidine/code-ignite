@@ -43,3 +43,29 @@ module "static_site" {
   site_noncurrent_version_retention_days = 7
   log_retention_days                     = 30
 }
+
+# Code playground run pipeline: SQS queue + DLQ, jobs S3 bucket, and the
+# run-api / run-worker runtime IAM policies. See
+# docs/code-playground-implementation-plan.md stage 2. Not yet wired into
+# staging or prod — dev is where the API and worker actually run in phase 1
+# (docs/code-playground-plan.md is local-first).
+module "run_pipeline" {
+  source = "../../modules/run-pipeline"
+
+  providers = {
+    aws.this = aws
+  }
+
+  project_name = var.project_name
+  environment  = "dev"
+  aws_region   = var.aws_region
+
+  # Same account-global-role caveat as static_site above, and off for the
+  # same reason: these only work once you've added yourself to
+  # local_dev_iam_users in infra/bootstrap and re-applied it. Flip both to
+  # true here (and only here) once that's done — the first flag lets you
+  # `terraform apply` this module locally, the second lets the API and worker
+  # actually call SQS/S3 while running on your machine.
+  attach_deploy_policies_to_local_dev_role  = false
+  attach_runtime_policies_to_local_dev_role = false
+}

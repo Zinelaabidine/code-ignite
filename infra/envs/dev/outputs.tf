@@ -32,3 +32,13 @@ output "cognito_client_id" {
   description = "Cognito App Client ID — built into the frontend as NEXT_PUBLIC_CLIENT_ID."
   value       = module.static_site.cognito_client_id
 }
+
+output "runs_queue_url" {
+  description = "SQS queue URL — CODEIGNITE_RUNS_QUEUE_URL for the local backend .env."
+  value       = module.run_pipeline.runs_queue_url
+}
+
+output "jobs_bucket_name" {
+  description = "S3 bucket holding job input/result objects — CODEIGNITE_JOBS_BUCKET for the local backend .env."
+  value       = module.run_pipeline.jobs_bucket_name
+}

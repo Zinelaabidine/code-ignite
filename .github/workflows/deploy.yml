@@ -281,7 +281,10 @@ jobs:
             -target=module.static_site.time_sleep.storage_iam_propagation \
             -target=module.static_site.aws_iam_policy.github_deploy_cdn_policy \
             -target=module.static_site.aws_iam_role_policy_attachment.github_deploy_cdn \
-            -target=module.static_site.time_sleep.cdn_iam_propagation
+            -target=module.static_site.time_sleep.cdn_iam_propagation \
+            -target=module.run_pipeline.aws_iam_policy.github_deploy_run_pipeline_policy \
+            -target=module.run_pipeline.aws_iam_role_policy_attachment.github_deploy_run_pipeline \
+            -target=module.run_pipeline.time_sleep.run_pipeline_iam_propagation
 
       - name: Refresh AWS credentials after IAM policy update
         if: needs.changes.outputs.infra == 'true'
