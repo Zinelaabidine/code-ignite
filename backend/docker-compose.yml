@@ -1,0 +1,44 @@
+# Local stage 2 topology: two containers, real AWS SQS/S3 (see
+# docs/code-playground-implementation-plan.md — LocalStack was deliberately
+# rejected). Credentials come from the local-dev IAM role via your existing
+# AWS profile, mounted read-only; neither container holds an access key.
+#
+#   docker compose up
+#
+# Requires an active session for a profile the local-dev role trusts (`aws
+# sso login` / `aws sts assume-role`, per your normal workflow) *before*
+# `docker compose up` — the containers read the cached session from the
+# mounted ~/.aws, they don't perform the MFA challenge themselves.
+
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    ports:
+      - "8000:8000"
+    environment:
+      CODEIGNITE_AWS_REGION: ${CODEIGNITE_AWS_REGION:?set in backend/.env}
+      CODEIGNITE_JOBS_BUCKET: ${CODEIGNITE_JOBS_BUCKET:?set in backend/.env}
+      CODEIGNITE_RUNS_QUEUE_URL: ${CODEIGNITE_RUNS_QUEUE_URL:?set in backend/.env}
+      AWS_PROFILE: ${AWS_PROFILE:?set in backend/.env}
+      AWS_REGION: ${CODEIGNITE_AWS_REGION:?set in backend/.env}
+    volumes:
+      - ~/.aws:/root/.aws:ro
+    # Deliberately no /var/run/docker.sock mount here — see Dockerfile.api.
+
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.worker
+    environment:
+      CODEIGNITE_AWS_REGION: ${CODEIGNITE_AWS_REGION:?set in backend/.env}
+      CODEIGNITE_JOBS_BUCKET: ${CODEIGNITE_JOBS_BUCKET:?set in backend/.env}
+      CODEIGNITE_RUNS_QUEUE_URL: ${CODEIGNITE_RUNS_QUEUE_URL:?set in backend/.env}
+      AWS_PROFILE: ${AWS_PROFILE:?set in backend/.env}
+      AWS_REGION: ${CODEIGNITE_AWS_REGION:?set in backend/.env}
+    volumes:
+      - ~/.aws:/root/.aws:ro
+      # The trust boundary — see Dockerfile.worker and
+      # docs/code-playground-implementation-plan.md §0.
+      - /var/run/docker.sock:/var/run/docker.sock

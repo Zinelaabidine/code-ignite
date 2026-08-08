@@ -1,0 +1,25 @@
+# The worker — the one process here that holds the Docker socket
+# (mounted by docker-compose.yml, not baked into this image). It shells out
+# to the `docker` CLI (LocalDockerRunner) to run each job in its own
+# locked-down, ephemeral container — "docker outside of docker": this CLI
+# talks to the *host's* daemon via the mounted socket, not a nested one.
+#
+# The `docker` binary itself comes from the official CLI-only image so this
+# stays a plain client, never a full engine — this container isn't meant to
+# run containers itself, only ask the host's daemon to.
+FROM docker:27-cli AS docker-cli
+
+FROM python:3.12-slim
+
+WORKDIR /app
+
+COPY --from=docker-cli /usr/local/bin/docker /usr/local/bin/docker
+
+COPY pyproject.toml ./
+COPY src ./src
+
+RUN pip install --no-cache-dir .
+
+# No EXPOSE — this process never listens on a port. Its only input is a job
+# ID pulled from SQS.
+CMD ["python", "-m", "codeignite.worker"]

@@ -1,25 +1,34 @@
-"""`POST /runs` — synchronous for now.
+"""`POST /runs` / `GET /runs/{job_id}` — asynchronous, per
+docs/code-playground-plan.md's flow:
 
-Stage 1 of docs/code-playground-plan.md runs the sandbox inline and returns
-the result in the same request. Stage 2 (async runs) replaces the body of
-`submit_run` with an S3 write + SQS send and a `202 {job_id}`, and this file
-gains a `GET /runs/{job_id}` — the request/response *shapes* defined here
-(`RunRequest`, `RunResponse`) carry over unchanged, since they mirror
-`RunResult` field-for-field.
+    POST /runs          → job_id = uuid4()
+                        → S3 PUT  jobs/{job_id}/input.json
+                        → SQS SEND {job_id}
+                        → 202 {job_id}
 
-`get_runner` is this module's composition root: the only function that
-imports `LocalDockerRunner`. Every route depends on `Runner` (the Protocol),
-injected via FastAPI's `Depends`, so tests substitute a fake runner with
-`app.dependency_overrides[get_runner] = ...` instead of touching Docker.
+    GET /runs/{job_id}  → S3 GET result.json
+                        → 200 result, or 202 {"status":"pending"} if not there yet
+
+The worker (worker/loop.py) is what actually runs code now — this file no
+longer imports `Runner` or `LocalDockerRunner` at all. That's the visible
+effect of the stage 1 → stage 2 split: the API's only job is to enqueue.
+
+`RunsGateway` is this module's composition root, same pattern as stage 1's
+`get_runner`: routes depend on the Protocol via `Depends`, tests substitute
+`FakeRunsGateway` instead of touching S3/SQS.
 """
 
-from fastapi import APIRouter, Depends
+import uuid
+from datetime import UTC, datetime
+from typing import Literal, Protocol
+
+from fastapi import APIRouter, Depends, Path, Response
 from pydantic import BaseModel, Field, field_validator
 
-from codeignite.config import settings
 from codeignite.domain.languages import LANGUAGES
-from codeignite.runner.base import Runner, RunResult, RunStatus
-from codeignite.runner.local_docker import LocalDockerRunner
+from codeignite.domain.models import JobInput
+from codeignite.runner.base import RunResult, RunStatus
+from codeignite.storage import objects, queue
 
 router = APIRouter()
 
@@ -29,6 +38,12 @@ router = APIRouter()
 # revisit if it ever needs to be exact.
 MAX_CODE_LENGTH = 64 * 1024
 
+# Exactly what uuid.uuid4().hex produces. Constraining the job_id path
+# parameter to this shape before it reaches an S3 key rules out path
+# traversal via a crafted job_id ("../", url-encoded separators, etc.) —
+# rejected as a 422 before any storage call.
+JOB_ID_PATTERN = r"^[0-9a-f]{32}$"
+
 
 class RunRequest(BaseModel):
     language: str
@@ -37,12 +52,16 @@ class RunRequest(BaseModel):
     @field_validator("language")
     @classmethod
     def language_must_be_registered(cls, value: str) -> str:
-        # Validated here, not left for the runner to discover: an unknown
+        # Validated here, not left for the worker to discover: an unknown
         # language must never become a value that reaches `docker run`.
         if value not in LANGUAGES:
             supported = ", ".join(sorted(LANGUAGES))
             raise ValueError(f"unsupported language {value!r} — supported: {supported}")
         return value
+
+
+class SubmitRunResponse(BaseModel):
+    job_id: str
 
 
 class RunResponse(BaseModel):
@@ -52,6 +71,10 @@ class RunResponse(BaseModel):
     duration_ms: int
     status: RunStatus
     truncated: bool
+
+
+class PendingResponse(BaseModel):
+    status: Literal["pending"] = "pending"
 
 
 def _to_response(result: RunResult) -> RunResponse:
@@ -65,19 +88,69 @@ def _to_response(result: RunResult) -> RunResponse:
     )
 
 
-def get_runner() -> Runner:
-    """FastAPI dependency — the one place this module picks a concrete
-    `Runner`. Stage 2 makes this read `settings.runner_backend`; today there
-    is exactly one implementation, so there is nothing to branch on yet.
+class RunsGateway(Protocol):
+    """The three storage operations the API needs — nothing more. A worker
+    also needs `get_input`/`delete_job`/etc., which is exactly why those
+    live in `storage/` as plain functions rather than behind this Protocol:
+    this is deliberately narrower than the full storage surface, scoped to
+    what a route handler does.
     """
-    return LocalDockerRunner()
+
+    def put_input(self, job_id: str, job_input: JobInput) -> None: ...
+    def send_job(self, job_id: str) -> None: ...
+    def get_result(self, job_id: str) -> RunResult | None: ...
 
 
-@router.post("/runs", response_model=RunResponse)
-def submit_run(payload: RunRequest, runner: Runner = Depends(get_runner)) -> RunResponse:
-    result = runner.run(
+class S3SqsRunsGateway:
+    """The real implementation, backed by storage/objects.py and
+    storage/queue.py. `get_runner`'s successor for this file — the one place
+    that talks to actual AWS.
+    """
+
+    def put_input(self, job_id: str, job_input: JobInput) -> None:
+        objects.put_input(job_id, job_input)
+
+    def send_job(self, job_id: str) -> None:
+        queue.send_job(job_id)
+
+    def get_result(self, job_id: str) -> RunResult | None:
+        return objects.get_result(job_id)
+
+
+def get_runs_gateway() -> RunsGateway:
+    return S3SqsRunsGateway()
+
+
+@router.post("/runs", status_code=202, response_model=SubmitRunResponse)
+def submit_run(
+    payload: RunRequest, gateway: RunsGateway = Depends(get_runs_gateway)
+) -> SubmitRunResponse:
+    job_id = uuid.uuid4().hex
+    job_input = JobInput(
         code=payload.code,
         language=payload.language,
-        timeout=settings.max_execution_seconds,
+        submitted_at=datetime.now(UTC).isoformat(),
+        # Set once stage 3 verifies a Cognito access token here.
+        user_sub=None,
     )
+
+    # Order matters and must never change: the worker can receive the job ID
+    # the instant it's on the queue, so the input has to exist in S3 first.
+    # Reversing this lets a worker win the race against S3 and find nothing.
+    gateway.put_input(job_id, job_input)
+    gateway.send_job(job_id)
+
+    return SubmitRunResponse(job_id=job_id)
+
+
+@router.get("/runs/{job_id}")
+def get_run(
+    response: Response,
+    job_id: str = Path(..., pattern=JOB_ID_PATTERN),
+    gateway: RunsGateway = Depends(get_runs_gateway),
+) -> RunResponse | PendingResponse:
+    result = gateway.get_result(job_id)
+    if result is None:
+        response.status_code = 202
+        return PendingResponse()
     return _to_response(result)

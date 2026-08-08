@@ -3,12 +3,12 @@ name = "codeignite-backend"
 version = "0.1.0"
 description = "Code playground API and worker — sandboxed code execution behind SQS/S3"
 requires-python = ">=3.12"
-# boto3 arrives with stage 2 (async runs), the first code that imports it.
 dependencies = [
   "pydantic>=2.9",
   "pydantic-settings>=2.6",
   "fastapi>=0.115",
   "uvicorn[standard]>=0.34",
+  "boto3>=1.34",
 ]
 
 [project.optional-dependencies]
@@ -19,6 +19,18 @@ dev = [
   "pytest-cov>=6.0",
   # Only needed for FastAPI's TestClient, which is httpx-based.
   "httpx>=0.27",
+  # boto3 ships no types of its own; boto3-stubs provides real per-service
+  # client types (S3Client, SQSClient) instead of everything resolving to
+  # Any. Type-check only — not a runtime dependency.
+  "boto3-stubs[s3,sqs]>=1.34",
+  # Mocks S3/SQS at the botocore layer so storage/worker tests never touch
+  # real AWS.
+  "moto[s3,sqs]>=5.0",
+  # Sets the required CODEIGNITE_* env vars (see [tool.pytest.ini_options])
+  # before pytest imports anything — config.py instantiates Settings()
+  # eagerly at module load, so those three fields need a value before the
+  # first test module (transitively) imports codeignite.config.
+  "pytest-env>=1.1",
 ]
 
 [build-system]
@@ -54,6 +66,12 @@ python_version = "3.12"
 mypy_path = "src"
 strict = true
 warn_unreachable = true
+# Without this, mypy sees Settings() called with zero arguments and demands
+# aws_region/jobs_bucket/runs_queue_url as constructor kwargs — it has no way
+# to know pydantic-settings resolves them from the environment at runtime.
+# The plugin teaches mypy that BaseSettings subclasses are special-cased this
+# way, instead of papering over it with a per-line type: ignore.
+plugins = ["pydantic.mypy"]
 
 [[tool.mypy.overrides]]
 module = "tests.*"
@@ -64,4 +82,14 @@ testpaths = ["tests"]
 addopts = "--cov=codeignite --cov-report=term-missing"
 markers = [
   "docker: requires a running Docker daemon (deselect with -m 'not docker')",
+]
+# Placeholder values only — every test that cares about the real content
+# overrides via monkeypatch.setenv or moto. These exist purely so
+# `codeignite.config.Settings()` (instantiated eagerly at import time) has
+# something to validate against; see config.py's docstring for why those
+# three fields have no default.
+env = [
+  "CODEIGNITE_AWS_REGION=us-east-1",
+  "CODEIGNITE_JOBS_BUCKET=test-jobs-bucket",
+  "CODEIGNITE_RUNS_QUEUE_URL=https://sqs.us-east-1.amazonaws.com/123456789012/test-runs-queue",
 ]

@@ -4,12 +4,12 @@ Mirrors the intent of `frontend/lib/env.ts`: declare the whole configuration
 surface in one place, typed, so a missing or malformed value fails at process
 startup rather than surfacing as a confusing runtime error three calls deep.
 
-Every field here already has a default because nothing in this PR consumes
-these values yet — the local Docker runner (next PR) is the first reader of
-`runner_backend` and `max_execution_seconds`. Stage 2 (async runs) adds
-`aws_region`, `jobs_bucket` and `runs_queue_url` with no defaults, the way
-`lib/env.ts` has none for its three variables — at that point there really is
-no correct value to fall back to.
+`aws_region`, `jobs_bucket` and `runs_queue_url` are the first fields with no
+default — as promised when this module was scaffolded. There is no correct
+fallback for them: they come from `infra/modules/run-pipeline`'s outputs
+(`terraform output -raw jobs_bucket_name` / `runs_queue_url` in
+`infra/envs/dev`), and a process that started against the wrong bucket or
+queue would fail in a much more confusing way than refusing to start.
 """
 
 from typing import Literal
@@ -32,10 +32,18 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    # Selects the Runner implementation at the composition root. The only
-    # value today is "local_docker"; "kubernetes_job" arrives at the EKS
-    # migration described in docs/code-playground-plan.md and is added here
-    # the same PR it's implemented, not before.
+    # Required — see the module docstring for why none of these three have a
+    # default. Read by storage/objects.py, storage/queue.py, and the boto3
+    # client construction in both.
+    aws_region: str
+    jobs_bucket: str
+    runs_queue_url: str
+
+    # Selects the Runner implementation at the composition root (now the
+    # worker's — see worker/loop.py). The only value today is
+    # "local_docker"; "kubernetes_job" arrives at the EKS migration described
+    # in docs/code-playground-plan.md and is added here the same PR it's
+    # implemented, not before.
     runner_backend: Literal["local_docker"] = "local_docker"
 
     # Wall-clock ceiling passed to the runner as `timeout`. Matches the `timeout
