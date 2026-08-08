@@ -1,7 +1,8 @@
 "use client";
 
 import { useAuthenticator } from "@aws-amplify/ui-react";
-import { LogOut } from "lucide-react";
+import { LogOut, TerminalSquare } from "lucide-react";
+import Link from "next/link";
 
 import { Button } from "@/components/ui/button";
 import { parseUser } from "@/lib/auth/parseUser";
@@ -39,7 +40,16 @@ export default function SignedInHome() {
           placeholder — start building here.
         </p>
 
-        <Button onClick={signOut} className="mt-6 w-full" variant="outline">
+        <Button
+          className="mt-6 w-full"
+          nativeButton={false}
+          render={<Link href="/playground" />}
+        >
+          <TerminalSquare className="h-4 w-4" />
+          Open playground
+        </Button>
+
+        <Button onClick={signOut} className="mt-3 w-full" variant="outline">
           <LogOut className="h-4 w-4" />
           Sign out
         </Button>

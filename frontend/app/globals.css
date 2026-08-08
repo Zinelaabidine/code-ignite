@@ -255,6 +255,8 @@ body {
   --nord-success-tint: #e6efe8; /* success fill */
   --nord-danger: #b3564d; /* error red */
   --nord-danger-tint: #f4e7e4; /* error fill */
+  --nord-warning: #a97a2f; /* timeout / caution amber */
+  --nord-warning-tint: #f3ead9; /* warning fill */
 
   /* Legacy --nav-* aliases retained so AppTopBar keeps working; now point at
      the unified --nord palette. */
