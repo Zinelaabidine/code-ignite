@@ -52,6 +52,12 @@ variable "certificate_domain_name" {
   default     = ""
 }
 
+variable "state_bucket_force_destroy" {
+  description = "When true, Terraform may empty and delete the remote state bucket on destroy. Use only for full decommission; the bucket holds state for every environment root."
+  type        = bool
+  default     = false
+}
+
 variable "state_noncurrent_version_retention_days" {
   description = "How long superseded Terraform state versions are retained before expiry. Long enough to recover from a bad apply, short enough that the bucket does not grow without bound."
   type        = number

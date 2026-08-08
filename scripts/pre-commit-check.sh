@@ -82,12 +82,10 @@ for root in "${TERRAFORM_ROOTS[@]}"; do
   step "terraform validate ($root)"
   (
     cd "$root"
-    # -reconfigure: without it, -backend=false reuses whatever backend was
-    # cached in .terraform/ by a previous real `terraform init
-    # -backend-config=...` in this directory (e.g. an earlier experiment
-    # pointed at a bucket that no longer exists or isn't accessible), and
-    # validate fails trying to refresh that stale remote state instead of
-    # running as the local, credential-free check it's meant to be.
+    # Dropping remote backend for validate. Stale .terraform/ still references the
+    # previous state bucket after project_name changes; init -backend=false then
+    # tries to read that bucket and fails (e.g. apptemplate → codeignite).
+    rm -rf .terraform
     terraform init -backend=false -reconfigure -input=false >/dev/null
     terraform validate
   )

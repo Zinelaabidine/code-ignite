@@ -55,6 +55,59 @@ pass() { echo -e "${GREEN}✓ $1${NC}"; }
 warn() { echo -e "${YELLOW}! $1${NC}"; }
 fail() { echo -e "${RED}✗ $1${NC}" >&2; exit 1; }
 
+# Use frontend/.nvmrc in this shell when the active node is too old (nvm, fnm, volta).
+ensure_project_node_version() {
+  local nvmrc_path="frontend/.nvmrc"
+  [[ -f "$nvmrc_path" ]] || return 0
+
+  local required_major
+  required_major="$(tr -dc '0-9' < "$nvmrc_path")"
+  [[ -n "$required_major" ]] || return 0
+
+  local current_major
+  current_major="$(node -e 'console.log(process.versions.node.split(".")[0])' 2>/dev/null || echo 0)"
+  if [[ "$current_major" -ge "$required_major" ]]; then
+    return 0
+  fi
+
+  local before
+  before="$(node -v 2>/dev/null || echo unknown)"
+
+  if [[ -z "${NVM_DIR:-}" ]]; then
+    export NVM_DIR="${HOME}/.nvm"
+  fi
+  if [[ -s "${NVM_DIR}/nvm.sh" ]]; then
+    # shellcheck disable=SC1090
+    . "${NVM_DIR}/nvm.sh"
+    if nvm use "$required_major" >/dev/null 2>&1; then
+      pass "Node $before → $(node -v) (nvm, frontend/.nvmrc)"
+      return 0
+    fi
+    if nvm install "$required_major" >/dev/null 2>&1 && nvm use "$required_major" >/dev/null 2>&1; then
+      pass "Node $before → $(node -v) (nvm install, frontend/.nvmrc)"
+      return 0
+    fi
+  fi
+
+  if command -v fnm >/dev/null 2>&1; then
+    # shellcheck disable=SC1090
+    eval "$(fnm env --shell bash)"
+    if ( cd frontend && fnm use --install-if-missing ); then
+      pass "Node $before → $(node -v) (fnm, frontend/.nvmrc)"
+      return 0
+    fi
+  fi
+
+  if command -v volta >/dev/null 2>&1; then
+    if ( cd frontend && volta install "node@${required_major}" >/dev/null 2>&1 ); then
+      pass "Node $before → $(node -v) (volta, frontend/.nvmrc)"
+      return 0
+    fi
+  fi
+
+  fail "Node $(node -v) is too old — this project requires Node >=$required_major (see frontend/.nvmrc). Install it (e.g. nvm install $required_major) or activate it in this shell, then re-run."
+}
+
 require_cmd() {
   command -v "$1" >/dev/null 2>&1 || fail "$1 is not installed or not on PATH"
 }
@@ -126,18 +179,12 @@ if ! command -v trivy >/dev/null 2>&1; then
     fail "trivy is not installed. Install it (e.g. 'brew install trivy') or re-run with --skip-security to proceed without the IaC/secret scan."
   fi
 fi
-pass "required tools present"
-
 # frontend/package.json pins "engines": { "node": ">=24" } (see frontend/.nvmrc).
 # Below that, vite/vitest's ESM build fails with a cryptic ERR_REQUIRE_ESM deep
-# inside `npm run test` instead of a clear version error — catch it here.
-if [[ -f frontend/.nvmrc ]]; then
-  required_major="$(tr -dc '0-9' < frontend/.nvmrc)"
-  current_major="$(node -e 'console.log(process.versions.node.split(".")[0])')"
-  if [[ -n "$required_major" && "$current_major" -lt "$required_major" ]]; then
-    fail "Node $(node -v) is too old — this project requires Node >=$required_major (see frontend/.nvmrc). Run: nvm install $required_major && nvm use $required_major (or the equivalent for fnm/volta/asdf), then re-run this script."
-  fi
-fi
+# inside `npm run test` instead of a clear version error — activate .nvmrc here.
+ensure_project_node_version
+
+pass "required tools present"
 
 [[ -f "$TF_DIR/terraform.tfvars" ]] || fail "$TF_DIR/terraform.tfvars is missing. cp $TF_DIR/terraform.tfvars.example $TF_DIR/terraform.tfvars and fill it in."
 [[ -f "$TF_DIR/common.auto.tfvars" ]] || fail "$TF_DIR/common.auto.tfvars is missing. It should be a symlink to infra/common.tfvars — see infra/common.tfvars.example."

@@ -2,14 +2,18 @@
 #
 # This bucket holds the state for bootstrap AND for every environment root.
 # Losing it means losing the record of everything Terraform manages, so it is
-# versioned, encrypted, TLS-only, and protected against destroy.
+# versioned, encrypted, TLS-only, and protected against destroy unless
+# decommissioning (see state_bucket_force_destroy in terraform.tfvars.example).
 
 resource "aws_s3_bucket" "terraform_state" {
   bucket = local.terraform_state_bucket
 
-  # Deleting this bucket orphans every managed resource in the account and
-  # leaves no way to plan against them. Removing this block is a deliberate,
-  # reviewable act — which is the point.
+  # Versioned state objects must be emptied before bucket delete (decommission only).
+  # Apply after setting state_bucket_force_destroy = true so destroy uses force_destroy.
+  force_destroy = var.state_bucket_force_destroy
+
+  # Deleting this bucket orphans every managed resource in the account. Remove this
+  # block only for intentional full decommission (see terraform.tfvars.example).
   lifecycle {
     prevent_destroy = true
   }

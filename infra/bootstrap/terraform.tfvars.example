@@ -15,6 +15,10 @@ create_oidc_provider = true
 # How long superseded Terraform state versions are kept (minimum 30).
 state_noncurrent_version_retention_days = 90
 
+# Decommission only: allow terraform destroy to empty and delete the state bucket.
+# Run `terraform apply` once after setting this to true, then `terraform destroy`.
+# state_bucket_force_destroy = true
+
 # IAM principals allowed to assume <project_name>-local-dev-role. That role
 # carries the full deploy blast radius, so assuming it requires MFA no more than
 # an hour old. Leave the list empty to skip creating the role entirely.
