@@ -132,4 +132,30 @@ step "frontend build"
 (cd frontend && npm run build)
 pass "frontend build"
 
+# --- Backend ---
+if [[ -d backend/src/codeignite ]]; then
+  if [[ ! -d backend/.venv ]]; then
+    fail "backend/.venv missing — run: cd backend && python3.12 -m venv .venv && source .venv/bin/activate && pip install -e '.[dev]'"
+  fi
+
+  step "backend format"
+  (cd backend && .venv/bin/ruff format --check .)
+  pass "backend format"
+
+  step "backend lint"
+  (cd backend && .venv/bin/ruff check .)
+  pass "backend lint"
+
+  step "backend type-check"
+  (cd backend && .venv/bin/mypy --strict src)
+  pass "backend type-check"
+
+  step "backend tests"
+  # Docker-dependent tests are marked `docker` — see backend/README.md.
+  (cd backend && .venv/bin/pytest -m "not docker")
+  pass "backend tests"
+else
+  warn "backend/src/codeignite not present yet — skipping backend checks"
+fi
+
 echo -e "\n${GREEN}All pre-commit checks passed.${NC}"

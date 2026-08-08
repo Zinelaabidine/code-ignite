@@ -1,5 +1,5 @@
-# Dependabot keeps the three things this repo depends on current: npm packages,
-# GitHub Actions, and Terraform providers.
+# Dependabot keeps the things this repo depends on current: npm packages, pip
+# packages, GitHub Actions, and Terraform providers.
 #
 # The Actions ecosystem matters most. Every action in .github/workflows is
 # pinned to a commit SHA, which is the right call for supply-chain safety but
@@ -29,6 +29,18 @@ updates:
         update-types: [version-update:semver-major]
       - dependency-name: react-dom
         update-types: [version-update:semver-major]
+
+  - package-ecosystem: pip
+    directory: /backend
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+    open-pull-requests-limit: 5
+    labels: [dependencies, backend]
+    groups:
+      minor-and-patch:
+        update-types: [minor, patch]
 
   - package-ecosystem: github-actions
     directory: /

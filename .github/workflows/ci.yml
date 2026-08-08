@@ -30,6 +30,7 @@ concurrency:
 env:
   TF_VERSION: 1.15.8
   NODE_VERSION: 24
+  PYTHON_VERSION: "3.12"
 
 jobs:
   frontend:
@@ -76,6 +77,44 @@ jobs:
           NEXT_PUBLIC_AWS_REGION: us-east-1
           NEXT_PUBLIC_USER_POOL_ID: us-east-1_ciplaceholder
           NEXT_PUBLIC_CLIENT_ID: ciplaceholderclientid000000
+
+  backend:
+    name: backend
+    runs-on: self-hosted
+    timeout-minutes: 15
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: backend/pyproject.toml
+
+      - name: Install dependencies
+        working-directory: backend
+        run: pip install -e ".[dev]"
+
+      - name: Check formatting
+        working-directory: backend
+        run: ruff format --check .
+
+      - name: Lint
+        working-directory: backend
+        run: ruff check .
+
+      - name: Type-check
+        working-directory: backend
+        run: mypy --strict src
+
+      # Docker-dependent tests (LocalDockerRunner, from the next PR onward)
+      # are marked `docker` and need a daemon this runner does not yet have
+      # wired up — deselect them here, run them where Docker is available.
+      - name: Test
+        working-directory: backend
+        run: pytest -m "not docker"
 
   terraform:
     name: terraform
