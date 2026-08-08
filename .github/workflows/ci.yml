@@ -70,6 +70,12 @@ jobs:
 
       # Placeholder Cognito IDs: the build only needs the variables to exist,
       # and baking real ones into a PR build would be pointless anyway.
+      # NEXT_PUBLIC_API_BASE_URL is deliberately left unset here: it is
+      # optional (frontend/lib/env.ts resolves a missing value to `null`
+      # rather than failing the build), and there is no hosted API for a PR
+      # build to point at yet. Left in this block, commented, so a future
+      # required var never gets added to the same file without noticing the
+      # pattern this one follows.
       - name: Build
         working-directory: frontend
         run: npm run build
@@ -77,6 +83,7 @@ jobs:
           NEXT_PUBLIC_AWS_REGION: us-east-1
           NEXT_PUBLIC_USER_POOL_ID: us-east-1_ciplaceholder
           NEXT_PUBLIC_CLIENT_ID: ciplaceholderclientid000000
+          # NEXT_PUBLIC_API_BASE_URL: (optional — unset in CI, see above)
 
   backend:
     name: backend

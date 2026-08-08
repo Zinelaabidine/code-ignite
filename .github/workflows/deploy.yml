@@ -27,6 +27,13 @@
 #   DOMAIN_NAME_OVERRIDE       non-standard FQDN (maps to TF_VAR_domain_name_override)
 #   MFA_CONFIGURATION (OFF|OPTIONAL|ON), ADVANCED_SECURITY_MODE
 #   (OFF|AUDIT|ENFORCED), ENABLE_WAF (true|false)
+#   API_BASE_URL               code-playground API base URL (maps to
+#                              NEXT_PUBLIC_API_BASE_URL). There is no hosted
+#                              API yet, so this is normally unset — a missing
+#                              value resolves to `null` in frontend/lib/env.ts
+#                              rather than failing the build. Set it once the
+#                              API has a home (see
+#                              docs/code-playground-implementation-plan.md §8).
 #
 # None of these are secret, which is why they are variables rather than
 # secrets — but keeping them out of the repo keeps the template forkable and
@@ -369,6 +376,9 @@ jobs:
           NEXT_PUBLIC_AWS_REGION: ${{ env.AWS_REGION }}
           NEXT_PUBLIC_USER_POOL_ID: ${{ steps.tf.outputs.cognito_user_pool_id }}
           NEXT_PUBLIC_CLIENT_ID: ${{ steps.tf.outputs.cognito_client_id }}
+          # Optional — unset (empty string) resolves to `null` in
+          # frontend/lib/env.ts, since there is no hosted API yet.
+          NEXT_PUBLIC_API_BASE_URL: ${{ vars.API_BASE_URL }}
 
       # Upload order matters. Assets go up first so the new HTML never
       # references a chunk that is not there yet; the prune runs last so the

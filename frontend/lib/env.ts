@@ -19,6 +19,16 @@ export type PublicEnv = {
   readonly region: string;
   readonly userPoolId: string;
   readonly userPoolClientId: string;
+  /**
+   * Base URL of the code-playground API, or `null` when none is configured.
+   *
+   * There is no hosted API yet (see `docs/code-playground-implementation-plan.md`
+   * stage 4), so this is deliberately optional rather than required: a missing
+   * value must not fail the build the way a missing Cognito ID does. Callers
+   * (the playground route) render an honest "not available in this
+   * environment" panel instead of assuming a URL that does not exist.
+   */
+  readonly apiBaseUrl: string | null;
 };
 
 const missing: string[] = [];
@@ -29,6 +39,10 @@ function required(name: string, value: string | undefined): string {
     return "";
   }
   return value;
+}
+
+function optional(value: string | undefined): string | null {
+  return value ? value : null;
 }
 
 const region = required(
@@ -43,6 +57,7 @@ const userPoolClientId = required(
   "NEXT_PUBLIC_CLIENT_ID",
   process.env.NEXT_PUBLIC_CLIENT_ID,
 );
+const apiBaseUrl = optional(process.env.NEXT_PUBLIC_API_BASE_URL);
 
 if (missing.length > 0) {
   throw new Error(
@@ -52,4 +67,9 @@ if (missing.length > 0) {
   );
 }
 
-export const env: PublicEnv = { region, userPoolId, userPoolClientId };
+export const env: PublicEnv = {
+  region,
+  userPoolId,
+  userPoolClientId,
+  apiBaseUrl,
+};
