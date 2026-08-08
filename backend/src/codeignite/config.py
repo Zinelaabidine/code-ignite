@@ -10,6 +10,14 @@ fallback for them: they come from `infra/modules/run-pipeline`'s outputs
 (`terraform output -raw jobs_bucket_name` / `runs_queue_url` in
 `infra/envs/dev`), and a process that started against the wrong bucket or
 queue would fail in a much more confusing way than refusing to start.
+
+`cognito_user_pool_id` and `cognito_client_id` are required for the same
+reason, added in stage 3 (`api/auth.py`): they come from
+`infra/modules/static-site`'s Cognito outputs (the same pool the frontend
+already points at — see `frontend/.env.example`), and an API that started
+against the wrong pool would silently accept tokens from a different user
+pool. Not secrets: same reasoning as `frontend/lib/env.ts` — a pool ID and
+public SPA client ID are designed to be visible.
 """
 
 from typing import Literal
@@ -38,6 +46,16 @@ class Settings(BaseSettings):
     aws_region: str
     jobs_bucket: str
     runs_queue_url: str
+
+    # Required — see the module docstring. Read by api/auth.py to build the
+    # JWKS URL and to check a verified token's `client_id` claim.
+    cognito_user_pool_id: str
+    cognito_client_id: str
+
+    # Comma-separated, not a JSON list — keeps `.env` editable by hand the
+    # same way the rest of this file is. Split by api/app.py, not here, so
+    # this module stays free of any FastAPI-specific concern.
+    cors_allowed_origins: str = "http://localhost:3000"
 
     # Selects the Runner implementation at the composition root (now the
     # worker's — see worker/loop.py). The only value today is

@@ -21,6 +21,8 @@ services:
       CODEIGNITE_AWS_REGION: ${CODEIGNITE_AWS_REGION:?set in backend/.env}
       CODEIGNITE_JOBS_BUCKET: ${CODEIGNITE_JOBS_BUCKET:?set in backend/.env}
       CODEIGNITE_RUNS_QUEUE_URL: ${CODEIGNITE_RUNS_QUEUE_URL:?set in backend/.env}
+      CODEIGNITE_COGNITO_USER_POOL_ID: ${CODEIGNITE_COGNITO_USER_POOL_ID:?set in backend/.env}
+      CODEIGNITE_COGNITO_CLIENT_ID: ${CODEIGNITE_COGNITO_CLIENT_ID:?set in backend/.env}
       AWS_PROFILE: ${AWS_PROFILE:?set in backend/.env}
       AWS_REGION: ${CODEIGNITE_AWS_REGION:?set in backend/.env}
     volumes:
@@ -35,6 +37,12 @@ services:
       CODEIGNITE_AWS_REGION: ${CODEIGNITE_AWS_REGION:?set in backend/.env}
       CODEIGNITE_JOBS_BUCKET: ${CODEIGNITE_JOBS_BUCKET:?set in backend/.env}
       CODEIGNITE_RUNS_QUEUE_URL: ${CODEIGNITE_RUNS_QUEUE_URL:?set in backend/.env}
+      # The worker never checks these — codeignite.config.Settings validates
+      # the whole environment contract eagerly at import time regardless of
+      # which process imports it, so they're required here too or the
+      # container fails to start.
+      CODEIGNITE_COGNITO_USER_POOL_ID: ${CODEIGNITE_COGNITO_USER_POOL_ID:?set in backend/.env}
+      CODEIGNITE_COGNITO_CLIENT_ID: ${CODEIGNITE_COGNITO_CLIENT_ID:?set in backend/.env}
       AWS_PROFILE: ${AWS_PROFILE:?set in backend/.env}
       AWS_REGION: ${CODEIGNITE_AWS_REGION:?set in backend/.env}
     volumes:

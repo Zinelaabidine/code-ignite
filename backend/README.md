@@ -5,11 +5,13 @@ S3 — see `docs/code-playground-plan.md` for the architecture and
 `docs/code-playground-implementation-plan.md` for the build order this folder
 follows stage by stage.
 
-This is stage 2: asynchronous. `POST /runs` writes the job to S3, sends its ID
-to SQS, and returns `202 {job_id}` immediately — a separate worker process
-pulls the job off the queue, runs it, and writes the result back to S3.
-`GET /runs/{job_id}` returns `202 {"status":"pending"}` until the worker's
-finished, then `200` with the result. No auth yet — stage 3.
+This is stage 3: asynchronous and authenticated. `POST /runs` verifies a
+Cognito access token, rate-limits on its `sub`, writes the job to S3, sends
+its ID to SQS, and returns `202 {job_id}` immediately — a separate worker
+process pulls the job off the queue, runs it, and writes the result back to
+S3. `GET /runs/{job_id}` verifies the token, checks the job belongs to the
+caller (404 otherwise), and returns `202 {"status":"pending"}` until the
+worker's finished, then `200` with the result.
 
 ## Boundaries
 
@@ -32,9 +34,10 @@ pip install -e ".[dev]"
 cp .env.example .env
 ```
 
-Fill in the three required values in `.env` from Terraform outputs (see the
+Fill in the five required values in `.env` from Terraform outputs (see the
 comment in `.env.example`) — `codeignite.config.Settings` throws at startup
-if any is missing.
+if any is missing. The two Cognito ones are the same pool and app client the
+frontend already uses (`frontend/.env.example`).
 
 ## Commands
 
@@ -47,10 +50,11 @@ pytest -m "not docker"  # full suite (needs a Docker daemon): pytest -m docker
 
 These four are exactly what `.github/workflows/ci.yml`'s `backend` job and
 `scripts/pre-commit-check.sh` run — if they're green locally, CI will be too.
-`pytest` needs no AWS credentials: the S3/SQS-backed tests run against
-[moto](https://github.com/getmoto/moto), never real AWS, and the three
-required env vars get placeholder values from `pytest-env`
-(`pyproject.toml`).
+`pytest` needs no AWS credentials and no network: the S3/SQS-backed tests run
+against [moto](https://github.com/getmoto/moto), the JWT tests
+(`tests/test_auth.py`) sign their own tokens against a locally generated key
+and monkeypatch the JWKS lookup, and the five required env vars get
+placeholder values from `pytest-env` (`pyproject.toml`).
 
 ## Run it
 
@@ -67,8 +71,9 @@ Starts both the API (`:8000`) and the worker. Requires:
   `~/.aws` read-only and read the cached session; they don't perform the MFA
   challenge themselves.
 - `.env` filled in (see Setup above) — `docker-compose.yml` requires all
-  three `CODEIGNITE_*` values and `AWS_PROFILE` to be set, and fails fast
-  with a clear message if any is missing rather than starting half-configured.
+  five required `CODEIGNITE_*` values and `AWS_PROFILE` to be set, and fails
+  fast with a clear message if any is missing rather than starting
+  half-configured.
 
 ### Or run both processes directly
 

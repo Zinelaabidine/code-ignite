@@ -9,6 +9,9 @@ dependencies = [
   "fastapi>=0.115",
   "uvicorn[standard]>=0.34",
   "boto3>=1.34",
+  # [crypto] pulls in `cryptography` for RS256 verification of Cognito's
+  # JWKS-signed access tokens — see api/auth.py.
+  "pyjwt[crypto]>=2.9",
 ]
 
 [project.optional-dependencies]
@@ -87,9 +90,11 @@ markers = [
 # overrides via monkeypatch.setenv or moto. These exist purely so
 # `codeignite.config.Settings()` (instantiated eagerly at import time) has
 # something to validate against; see config.py's docstring for why those
-# three fields have no default.
+# fields have no default.
 env = [
   "CODEIGNITE_AWS_REGION=us-east-1",
   "CODEIGNITE_JOBS_BUCKET=test-jobs-bucket",
   "CODEIGNITE_RUNS_QUEUE_URL=https://sqs.us-east-1.amazonaws.com/123456789012/test-runs-queue",
+  "CODEIGNITE_COGNITO_USER_POOL_ID=us-east-1_testpool",
+  "CODEIGNITE_COGNITO_CLIENT_ID=test-client-id",
 ]

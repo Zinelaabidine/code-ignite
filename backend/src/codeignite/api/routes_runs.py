@@ -1,12 +1,17 @@
 """`POST /runs` / `GET /runs/{job_id}` — asynchronous, per
-docs/code-playground-plan.md's flow:
+docs/code-playground-plan.md's flow, both behind a verified Cognito access
+token (stage 3, `api/auth.py`):
 
-    POST /runs          → job_id = uuid4()
-                        → S3 PUT  jobs/{job_id}/input.json
+    POST /runs          → verify token, rate-limit on its `sub`
+                        → job_id = uuid4()
+                        → S3 PUT  jobs/{job_id}/input.json   {..., user_sub}
                         → SQS SEND {job_id}
                         → 202 {job_id}
 
-    GET /runs/{job_id}  → S3 GET result.json
+    GET /runs/{job_id}  → verify token
+                        → S3 GET input.json; 404 if missing or owned by a
+                          different `sub`
+                        → S3 GET result.json
                         → 200 result, or 202 {"status":"pending"} if not there yet
 
 The worker (worker/loop.py) is what actually runs code now — this file no
@@ -22,9 +27,11 @@ import uuid
 from datetime import UTC, datetime
 from typing import Literal, Protocol
 
-from fastapi import APIRouter, Depends, Path, Response
+from fastapi import APIRouter, Depends, HTTPException, Path, Response
 from pydantic import BaseModel, Field, field_validator
 
+from codeignite.api.auth import get_current_sub
+from codeignite.api.rate_limit import enforce_rate_limit
 from codeignite.domain.languages import LANGUAGES
 from codeignite.domain.models import JobInput
 from codeignite.runner.base import RunResult, RunStatus
@@ -89,15 +96,18 @@ def _to_response(result: RunResult) -> RunResponse:
 
 
 class RunsGateway(Protocol):
-    """The three storage operations the API needs — nothing more. A worker
-    also needs `get_input`/`delete_job`/etc., which is exactly why those
-    live in `storage/` as plain functions rather than behind this Protocol:
-    this is deliberately narrower than the full storage surface, scoped to
-    what a route handler does.
+    """The storage operations the API needs — nothing more. `get_input` is
+    here (and not only in `storage/`) because `get_run`'s ownership check
+    needs the stored `user_sub` before it can return a result. The worker
+    needs more than this (`delete_job`, `extend_visibility`, ...), which is
+    exactly why the fuller surface lives in `storage/` as plain functions
+    rather than behind this Protocol: this stays scoped to what a route
+    handler does.
     """
 
     def put_input(self, job_id: str, job_input: JobInput) -> None: ...
     def send_job(self, job_id: str) -> None: ...
+    def get_input(self, job_id: str) -> JobInput | None: ...
     def get_result(self, job_id: str) -> RunResult | None: ...
 
 
@@ -113,6 +123,9 @@ class S3SqsRunsGateway:
     def send_job(self, job_id: str) -> None:
         queue.send_job(job_id)
 
+    def get_input(self, job_id: str) -> JobInput | None:
+        return objects.get_input(job_id)
+
     def get_result(self, job_id: str) -> RunResult | None:
         return objects.get_result(job_id)
 
@@ -123,15 +136,16 @@ def get_runs_gateway() -> RunsGateway:
 
 @router.post("/runs", status_code=202, response_model=SubmitRunResponse)
 def submit_run(
-    payload: RunRequest, gateway: RunsGateway = Depends(get_runs_gateway)
+    payload: RunRequest,
+    sub: str = Depends(enforce_rate_limit),
+    gateway: RunsGateway = Depends(get_runs_gateway),
 ) -> SubmitRunResponse:
     job_id = uuid.uuid4().hex
     job_input = JobInput(
         code=payload.code,
         language=payload.language,
         submitted_at=datetime.now(UTC).isoformat(),
-        # Set once stage 3 verifies a Cognito access token here.
-        user_sub=None,
+        user_sub=sub,
     )
 
     # Order matters and must never change: the worker can receive the job ID
@@ -147,8 +161,17 @@ def submit_run(
 def get_run(
     response: Response,
     job_id: str = Path(..., pattern=JOB_ID_PATTERN),
+    sub: str = Depends(get_current_sub),
     gateway: RunsGateway = Depends(get_runs_gateway),
 ) -> RunResponse | PendingResponse:
+    job_input = gateway.get_input(job_id)
+    if job_input is None or job_input.user_sub != sub:
+        # Same 404 either way — a job_id the caller never submitted must
+        # look identical to one that belongs to someone else. Job IDs are
+        # UUIDs, but returning 403 for "not yours" vs 404 for "no such job"
+        # would leak which guessed IDs are live.
+        raise HTTPException(status_code=404)
+
     result = gateway.get_result(job_id)
     if result is None:
         response.status_code = 202
