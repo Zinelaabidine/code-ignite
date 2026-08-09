@@ -16,10 +16,11 @@
 #        roles it manages.
 #
 # FILE LAYOUT (one concern per file, per CLAUDE.md §6):
-#   s3-state.tf        Terraform remote state bucket and its companions
-#   iam-oidc.tf        GitHub Actions OIDC provider
+#   s3-state.tf          Terraform remote state bucket and its companions
+#   iam-oidc.tf          GitHub Actions OIDC provider
 #   iam-deploy-roles.tf  Per-environment deploy roles and their trust policies
-#   iam-local-dev.tf   Shared local-developer role (MFA-gated)
+#   iam-deploy-seed.tf   Minimal state + IAM seed so a fresh env can first-apply
+#   iam-local-dev.tf     Shared local-developer role (MFA-gated)
 #   iam-bootstrap-ci.tf  The role bootstrap.yml itself assumes
 #
 # FILES TO REVIEW MANUALLY BEFORE EVERY APPLY:

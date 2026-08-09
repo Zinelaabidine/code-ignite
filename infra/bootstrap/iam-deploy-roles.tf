@@ -56,8 +56,9 @@ resource "aws_iam_role" "github_deploy" {
   # leaked token is useful for exactly as long as this window.
   max_session_duration = 3600
 
-  # Created without permissions on purpose — the app module in infra/envs/<env>
-  # creates and attaches the deploy managed policies.
+  # Full deploy permissions are created and attached by infra/envs/<env>. A
+  # small seed policy (iam-deploy-seed.tf) is attached here so a fresh
+  # environment can terraform init and create those managed policies in CI.
   tags = {
     Name        = "${var.project_name}-${each.key}-github-deploy-role"
     Environment = each.key

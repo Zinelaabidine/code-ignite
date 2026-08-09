@@ -257,9 +257,15 @@ data "aws_iam_policy_document" "github_deploy_storage_policy" {
       "s3:GetAccelerateConfiguration",
       "s3:GetIntelligentTieringConfiguration",
     ]
+    # ARNs are built from locals (bucket names are chosen here, not assigned by
+    # AWS) rather than aws_s3_bucket.site.arn / logs.arn. Referencing the real
+    # resources would make this policy document depend on the buckets, so
+    # deploy.yml's targeted first-apply of the storage policy would also try to
+    # create the buckets — before this policy (which grants CreateBucket) is
+    # attached. Same cycle-avoidance pattern as run-pipeline/iam-deploy.tf.
     resources = concat(
-      [aws_s3_bucket.site.arn],
-      local.enable_logging ? [aws_s3_bucket.logs[0].arn] : [],
+      ["arn:aws:s3:::${local.bucket_name}"],
+      local.enable_logging ? ["arn:aws:s3:::${local.logs_bucket_name}"] : [],
     )
   }
 
@@ -272,7 +278,7 @@ data "aws_iam_policy_document" "github_deploy_storage_policy" {
       "s3:DeleteObject",
     ]
     resources = [
-      "${aws_s3_bucket.site.arn}/*",
+      "arn:aws:s3:::${local.bucket_name}/*",
     ]
   }
 
