@@ -63,6 +63,8 @@ data "aws_iam_policy_document" "github_deploy_run_api_policy" {
       "iam:DeleteRole",
       "iam:GetRole",
       "iam:UpdateRole",
+      "iam:GetRolePolicy",
+      "iam:ListRolePolicies",
       "iam:AttachRolePolicy",
       "iam:DetachRolePolicy",
       "iam:ListAttachedRolePolicies",
@@ -132,19 +134,31 @@ data "aws_iam_policy_document" "github_deploy_run_api_policy" {
 
   # ─── CloudWatch Logs — this function's own log group ──────────────────────
 
+  # DescribeLogGroups is a list API: IAM evaluates it against
+  # arn:...:log-group::log-stream: (empty name), so a named log-group ARN
+  # never matches. AWS offers no resource-level scope for this action.
+  statement {
+    sid    = "LogGroupsDescribe"
+    effect = "Allow"
+    actions = [
+      "logs:DescribeLogGroups",
+    ]
+    resources = ["*"]
+  }
+
   statement {
     sid    = "LogGroupManage"
     effect = "Allow"
     actions = [
       "logs:CreateLogGroup",
       "logs:DeleteLogGroup",
-      "logs:DescribeLogGroups",
       "logs:PutRetentionPolicy",
       "logs:TagResource",
       "logs:UntagResource",
       "logs:ListTagsForResource",
     ]
     resources = [
+      "arn:aws:logs:${var.aws_region}:${local.account_id}:log-group:/aws/lambda/${local.name_prefix}-run-api",
       "arn:aws:logs:${var.aws_region}:${local.account_id}:log-group:/aws/lambda/${local.name_prefix}-run-api:*",
     ]
   }

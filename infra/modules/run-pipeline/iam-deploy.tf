@@ -73,8 +73,19 @@ data "aws_iam_policy_document" "github_deploy_run_pipeline_policy" {
       "s3:DeleteBucketPolicy",
       "s3:GetBucketTagging",
       "s3:PutBucketTagging",
+      "s3:GetBucketAcl",
       "s3:GetLifecycleConfiguration",
       "s3:PutLifecycleConfiguration",
+      # aws_s3_bucket Read probes these even when unset; without them refresh
+      # fails AccessDenied after the ACL grant above unblocks the first call.
+      "s3:GetBucketCORS",
+      "s3:GetBucketWebsite",
+      "s3:GetBucketLogging",
+      "s3:GetBucketRequestPayment",
+      "s3:GetBucketObjectLockConfiguration",
+      "s3:GetReplicationConfiguration",
+      "s3:GetAccelerateConfiguration",
+      "s3:GetIntelligentTieringConfiguration",
     ]
     resources = [local.jobs_bucket_arn]
   }
