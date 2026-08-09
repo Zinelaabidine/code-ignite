@@ -45,6 +45,12 @@ locals {
 
   github_repo_full = "${var.github_owner}/${var.github_repo}"
 
+  # GitHub Actions OIDC `sub` uses immutable owner/repo IDs (opt-in, or
+  # automatic for repos created/renamed after 2026-07-15):
+  #   repo:OWNER@OWNER_ID/REPO@REPO_ID:environment:ENV
+  # Trust policies must match that form — name-only subjects no longer match.
+  github_repo_immutable = "${var.github_owner}@${var.github_owner_id}/${var.github_repo}@${var.github_repo_id}"
+
   # Must match the `environment:` values used in .github/workflows/deploy.yml.
   # dev → push to dev branch, staging → push to staging, prod → push to main.
   environments = ["dev", "staging", "prod"]

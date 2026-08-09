@@ -1,9 +1,15 @@
 # Copy to terraform.tfvars (gitignored) and fill in before the first bootstrap
 # apply.
 #
-# aws_region, project_name, aws_account_id, github_*, hosted_zone_name, and
+# aws_region, project_name, github_owner, github_repo, hosted_zone_name, and
 # certificate_domain_name live in infra/common.tfvars (see common.tfvars.example).
 # State bucket and site hostnames are derived from project_name — not set here.
+#
+# Immutable OIDC subject IDs (required — GitHub embeds these in `sub`):
+#   gh api user --jq .id                         # or gh api orgs/OWNER --jq .id
+#   gh api repos/OWNER/REPO --jq .id
+github_owner_id = "00000000"
+github_repo_id  = "0000000000"
 
 # AWS allows only one GitHub Actions OIDC provider per account. Leave this
 # true on a fresh account. If `terraform apply` fails with

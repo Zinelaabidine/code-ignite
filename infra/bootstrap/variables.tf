@@ -40,6 +40,33 @@ variable "github_repo" {
   type        = string
 }
 
+variable "github_owner_id" {
+  description = <<-EOT
+    Numeric GitHub account ID for the owner (immutable OIDC sub claims).
+    User: gh api user --jq .id
+    Org:  gh api orgs/<owner> --jq .id
+  EOT
+  type        = string
+
+  validation {
+    condition     = can(regex("^[0-9]+$", var.github_owner_id))
+    error_message = "github_owner_id must be a numeric string."
+  }
+}
+
+variable "github_repo_id" {
+  description = <<-EOT
+    Numeric GitHub repository ID for immutable OIDC sub claims.
+    gh api repos/<owner>/<repo> --jq .id
+  EOT
+  type        = string
+
+  validation {
+    condition     = can(regex("^[0-9]+$", var.github_repo_id))
+    error_message = "github_repo_id must be a numeric string."
+  }
+}
+
 variable "hosted_zone_name" {
   description = "Unused in bootstrap; declared so infra/common.tfvars can load via common.auto.tfvars without undeclared-variable errors."
   type        = string

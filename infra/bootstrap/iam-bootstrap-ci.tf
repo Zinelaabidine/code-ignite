@@ -37,10 +37,11 @@ data "aws_iam_policy_document" "bootstrap_ci_trust" {
     condition {
       test     = "StringLike"
       variable = "token.actions.githubusercontent.com:sub"
-      values   = ["repo:${local.github_repo_full}:*"]
+      values   = ["repo:${local.github_repo_immutable}:*"]
     }
 
     # The critical condition: only bootstrap.yml on main can assume this role.
+    # job_workflow_ref still uses the name-based owner/repo path (not @ids).
     condition {
       test     = "StringEquals"
       variable = "token.actions.githubusercontent.com:job_workflow_ref"

@@ -15,16 +15,6 @@
 # local-dev role in iam-local-dev.tf, keeping CI and workstation credentials
 # separate.
 #
-# OPTIONAL FURTHER HARDENING: add a `repository_id` condition. A repo that is
-# deleted and re-created by someone else keeps the same `repo:owner/name` path
-# but gets a new numeric ID, so pinning it defeats name-reclaim attacks:
-#
-#   condition {
-#     test     = "StringEquals"
-#     variable = "token.actions.githubusercontent.com:repository_id"
-#     values   = ["<numeric id from: gh api repos/OWNER/REPO --jq .id>"]
-#   }
-
 data "aws_iam_policy_document" "github_deploy_trust" {
   for_each = toset(local.environments)
 
@@ -45,11 +35,11 @@ data "aws_iam_policy_document" "github_deploy_trust" {
       values   = ["sts.amazonaws.com"]
     }
 
-    # Exact repo + environment combination.
+    # Exact immutable repo + environment combination (OWNER@id/REPO@id).
     condition {
       test     = "StringEquals"
       variable = "token.actions.githubusercontent.com:sub"
-      values   = ["repo:${local.github_repo_full}:environment:${each.key}"]
+      values   = ["repo:${local.github_repo_immutable}:environment:${each.key}"]
     }
   }
 }
