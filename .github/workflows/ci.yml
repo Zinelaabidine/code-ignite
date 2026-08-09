@@ -93,12 +93,13 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      # setup-python installs into RUNNER_TOOL_CACHE. On this self-hosted macOS
-      # runner the default (/Users/runner/hostedtoolcache) is not writable —
-      # use the job temp dir instead. runner.* is only valid at step scope.
+      # setup-python's install script uses AGENT_TOOLSDIRECTORY (and the
+      # tool-cache uses RUNNER_TOOL_CACHE). On this self-hosted macOS runner
+      # both default to /Users/runner/hostedtoolcache, which is not writable.
       - name: Set up Python
         uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
         env:
+          AGENT_TOOLSDIRECTORY: ${{ runner.temp }}/hostedtoolcache
           RUNNER_TOOL_CACHE: ${{ runner.temp }}/hostedtoolcache
         with:
           python-version: ${{ env.PYTHON_VERSION }}
@@ -156,6 +157,9 @@ jobs:
       - name: Validate every root
         run: |
           set -euo pipefail
+          # common.auto.tfvars symlinks point at gitignored infra/common.tfvars.
+          # Seed from the example so init/validate can resolve those targets in CI.
+          cp infra/common.tfvars.example infra/common.tfvars
           for dir in infra/bootstrap infra/envs/dev infra/envs/staging infra/envs/prod; do
             echo "::group::terraform validate $dir"
             terraform -chdir="$dir" init -backend=false -input=false -no-color
