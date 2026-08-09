@@ -260,6 +260,26 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
+      # The self-hosted runner moved from macOS (Homebrew's awscli formula)
+      # to a bare Ubuntu box that has no AWS CLI on PATH at all — every step
+      # below that shells out to `aws` (identity check, S3 sync, CloudFront
+      # invalidation) fails with "aws: command not found" otherwise. Installs
+      # to a user-writable prefix (no sudo needed on a self-hosted runner)
+      # and is a no-op if a future image already has it.
+      - name: Install AWS CLI
+        run: |
+          set -euo pipefail
+          if command -v aws >/dev/null 2>&1; then
+            aws --version
+            exit 0
+          fi
+          curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-$(uname -m).zip" -o /tmp/awscliv2.zip
+          unzip -q /tmp/awscliv2.zip -d /tmp
+          /tmp/aws/install --install-dir "$HOME/.local/aws-cli" --bin-dir "$HOME/.local/bin"
+          rm -rf /tmp/awscliv2.zip /tmp/aws
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          "$HOME/.local/bin/aws" --version
+
       - name: Set environment context
         id: set-env
         run: |
@@ -365,7 +385,6 @@ jobs:
           set -euo pipefail
           python3 -m pip install --upgrade pip
           ./scripts/build-lambda-zip.sh
-          docker push "$image"
 
       - name: Terraform Plan
         if: needs.changes.outputs.infra == 'true'
