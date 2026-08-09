@@ -7,7 +7,7 @@
 # The `docker` binary itself comes from the official CLI-only image so this
 # stays a plain client, never a full engine — this container isn't meant to
 # run containers itself, only ask the host's daemon to.
-FROM docker:27-cli AS docker-cli
+FROM docker:29-cli AS docker-cli
 
 FROM python:3.12-slim
 
