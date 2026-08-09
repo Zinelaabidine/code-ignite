@@ -59,6 +59,12 @@ function present(state: RunHookState): Presentation {
       };
     case "unauthenticated":
       return { label: "Sign-in required", tone: "danger", icon: Lock };
+    case "forbidden":
+      return {
+        label: "Request forbidden",
+        tone: "danger",
+        icon: AlertTriangle,
+      };
     case "rate-limited":
       return {
         label: "Rate limited — slow down",

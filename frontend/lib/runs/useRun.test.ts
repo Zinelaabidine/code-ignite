@@ -205,6 +205,27 @@ describe("runAndPoll", () => {
     );
     expect(rateLimited.at(-1)).toEqual({ status: "rate-limited" });
 
+    const forbidden = await collectStates((onState) =>
+      runAndPoll(
+        "http://api.test",
+        "python",
+        "print(1)",
+        new AbortController().signal,
+        onState,
+        baseDeps({
+          submitRun: vi
+            .fn()
+            .mockRejectedValue(
+              new RunApiError("POST /runs failed with 403", "forbidden", 403),
+            ),
+        }),
+      ),
+    );
+    expect(forbidden.at(-1)).toEqual({
+      status: "forbidden",
+      message: "POST /runs failed with 403",
+    });
+
     const networkError = await collectStates((onState) =>
       runAndPoll(
         "http://api.test",

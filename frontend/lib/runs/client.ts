@@ -13,7 +13,11 @@ import type {
  */
 
 export type RunApiErrorKind =
-  "unauthenticated" | "rate-limited" | "invalid" | "network-error";
+  | "unauthenticated"
+  | "forbidden"
+  | "rate-limited"
+  | "invalid"
+  | "network-error";
 
 export class RunApiError extends Error {
   readonly kind: RunApiErrorKind;
@@ -34,11 +38,33 @@ export function isAbortError(error: unknown): boolean {
 
 function classifyStatus(status: number): RunApiErrorKind {
   if (status === 401) return "unauthenticated";
+  // CloudFront OAC → Lambda function URL rejects a signed POST whose body
+  // hash is missing or wrong with 403. Without this branch that surfaces as
+  // a generic network-error (and with the distribution's 403→404 rewrite it
+  // can look like a 404 instead — see cloudfront.tf custom_error_response).
+  if (status === 403) return "forbidden";
   if (status === 429) return "rate-limited";
   // 422: pydantic validation (unsupported language, code over the length
   // cap). 400 is not currently returned by the API but is treated the same.
   if (status === 422 || status === 400) return "invalid";
   return "network-error";
+}
+
+/**
+ * Hex SHA-256 of `body`. Required when POSTing through CloudFront OAC to a
+ * Lambda function URL — OAC signs with SigV4 but does not hash the payload,
+ * and Lambda URLs reject UNSIGNED-PAYLOAD. Local docker-compose has no
+ * CloudFront in front, so the header is simply ignored there.
+ * @see https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/private-content-restricting-access-to-lambda.html
+ */
+async function sha256Hex(body: string): Promise<string> {
+  const digest = await crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(body),
+  );
+  return [...new Uint8Array(digest)]
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
 }
 
 async function doFetch(url: string, init: RequestInit): Promise<Response> {
@@ -59,13 +85,16 @@ export async function submitRun(
   payload: RunRequest,
   signal: AbortSignal,
 ): Promise<SubmitRunResponse> {
+  const body = JSON.stringify(payload);
+  const payloadHash = await sha256Hex(body);
   const response = await doFetch(`${baseUrl}/runs`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
       Authorization: `Bearer ${token}`,
+      "x-amz-content-sha256": payloadHash,
     },
-    body: JSON.stringify(payload),
+    body,
     signal,
   });
   if (!response.ok) {

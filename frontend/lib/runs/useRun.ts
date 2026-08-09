@@ -25,6 +25,7 @@ export type RunHookState =
   | { status: "finished"; result: RunResult }
   | { status: "still-running" }
   | { status: "unauthenticated" }
+  | { status: "forbidden"; message: string }
   | { status: "rate-limited" }
   | { status: "invalid"; message: string }
   | { status: "network-error"; message: string };
@@ -64,6 +65,8 @@ function stateForError(error: unknown): RunHookState {
     switch (error.kind) {
       case "unauthenticated":
         return { status: "unauthenticated" };
+      case "forbidden":
+        return { status: "forbidden", message: error.message };
       case "rate-limited":
         return { status: "rate-limited" };
       case "invalid":

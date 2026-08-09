@@ -27,6 +27,8 @@ function helperMessage(state: RunHookState): string | null {
       return "This run is taking longer than 60 seconds, so we stopped polling. It may still finish — check back, or run again.";
     case "unauthenticated":
       return "Your session has expired. Sign in again and re-run.";
+    case "forbidden":
+      return state.message;
     case "rate-limited":
       return "You're submitting runs too quickly. Wait a moment and try again.";
     case "invalid":
@@ -42,6 +44,7 @@ export default function OutputPane({ state }: { state: RunHookState }) {
   const message = helperMessage(state);
   const isProblem =
     state.status === "unauthenticated" ||
+    state.status === "forbidden" ||
     state.status === "rate-limited" ||
     state.status === "invalid" ||
     state.status === "network-error";
