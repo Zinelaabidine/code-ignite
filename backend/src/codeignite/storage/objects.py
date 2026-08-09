@@ -11,17 +11,30 @@ polls it before the worker has finished) and is exactly what distinguishes
 202 from 200 in `api/routes_runs.py`.
 """
 
+from __future__ import annotations
+
 import json
 from functools import lru_cache
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import boto3
 from botocore.exceptions import ClientError
-from mypy_boto3_s3 import S3Client
 
 from codeignite.config import settings
 from codeignite.domain.models import JobInput
 from codeignite.runner.base import RunResult, RunStatus
+
+if TYPE_CHECKING:
+    # boto3-stubs ("mypy_boto3_s3") is a type-check-only dev dependency (see
+    # pyproject.toml's `dev` extra) — it is deliberately NOT installed into
+    # the Lambda zip (`.[lambda]` extra, backend/scripts/build-lambda-zip.sh),
+    # so importing it at runtime crashes the Lambda's cold start with
+    # `Runtime.ImportModuleError: No module named 'mypy_boto3_s3'` on every
+    # invocation, including /healthz. Guarding behind TYPE_CHECKING (with
+    # `from __future__ import annotations` above so the S3Client annotation
+    # below is never evaluated at runtime) keeps mypy's real per-service
+    # client types without shipping the stub package.
+    from mypy_boto3_s3 import S3Client
 
 
 @lru_cache(maxsize=1)

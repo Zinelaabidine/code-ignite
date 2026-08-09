@@ -2,15 +2,23 @@
 — never code, never results — per `docs/code-playground-plan.md`.
 """
 
+from __future__ import annotations
+
 import json
 from dataclasses import dataclass
 from functools import lru_cache
+from typing import TYPE_CHECKING
 
 import boto3
-from mypy_boto3_sqs import SQSClient
-from mypy_boto3_sqs.type_defs import MessageTypeDef
 
 from codeignite.config import settings
+
+if TYPE_CHECKING:
+    # See storage/objects.py's matching comment: mypy_boto3_sqs is a
+    # type-check-only dev dependency, not installed into the Lambda zip, so
+    # it must never be imported at module load time.
+    from mypy_boto3_sqs import SQSClient
+    from mypy_boto3_sqs.type_defs import MessageTypeDef
 
 
 @lru_cache(maxsize=1)
