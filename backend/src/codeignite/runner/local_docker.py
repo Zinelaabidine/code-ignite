@@ -68,6 +68,29 @@ class LocalDockerRunner:
     the Kubernetes API — so this dependency does not carry forward.
     """
 
+    def __init__(
+        self,
+        job_workspace_dir: Path | None = None,
+        host_job_workspace_dir: Path | None = None,
+    ) -> None:
+        """`job_workspace_dir` / `host_job_workspace_dir` mirror the
+        `config.py` settings of the same name — see that module's docstring
+        for why both exist. Plumbed through the constructor rather than read
+        from `codeignite.config.settings` directly here, so this module
+        stays usable by anything that isn't the worker's composition root
+        (`worker/loop.py`'s `get_runner()`, the only place that should pass
+        them) — stage 1's `pytest -m docker` tests construct
+        `LocalDockerRunner()` with neither set and get the old
+        direct-daemon behaviour, unchanged.
+
+        Both `None` means "this process's filesystem and the Docker
+        daemon's are the same thing" — the temp dir goes wherever
+        `tempfile` puts it by default, and the mount source handed to
+        `docker run` is that same path, unmodified.
+        """
+        self._job_workspace_dir = job_workspace_dir
+        self._host_job_workspace_dir = host_job_workspace_dir
+
     def run(self, code: str, language: str, timeout: int) -> RunResult:
         if language not in LANGUAGES:
             raise UnknownLanguageError(language)
@@ -76,8 +99,11 @@ class LocalDockerRunner:
         job_id = uuid.uuid4().hex
         container_name = f"job-{job_id}"
 
-        with _job_workspace(code, spec.extension) as workspace:
-            argv = _build_argv(workspace, spec, container_name, timeout)
+        with _job_workspace(code, spec.extension, self._job_workspace_dir) as workspace:
+            mount_source = _host_mount_source(
+                workspace, self._job_workspace_dir, self._host_job_workspace_dir
+            )
+            argv = _build_argv(mount_source, spec, container_name, timeout)
             start = time.monotonic()
 
             try:
@@ -157,8 +183,14 @@ def _build_argv(workspace: Path, spec: Language, container_name: str, timeout: i
 
 
 @contextmanager
-def _job_workspace(code: str, extension: str) -> Iterator[Path]:
+def _job_workspace(code: str, extension: str, base_dir: Path | None = None) -> Iterator[Path]:
     """Write `code` to a fresh temp dir as the only file the container sees.
+
+    `base_dir`, when set, is the directory the temp dir is created *inside*
+    rather than the OS default — the worker's bind-mounted, host-shared
+    workspace directory (see `LocalDockerRunner.__init__` and
+    `_host_mount_source`) rather than `/tmp`, so the resulting path is
+    guaranteed to sit under a directory the host can also resolve.
 
     World-readable permissions are set deliberately: the container runs as
     uid 65534 (nobody), a different uid than the one that created the file,
@@ -166,7 +198,7 @@ def _job_workspace(code: str, extension: str) -> Iterator[Path]:
     directory and file are deleted in `finally` regardless of how the
     container run went.
     """
-    with tempfile.TemporaryDirectory(prefix="codeignite-job-") as tmp:
+    with tempfile.TemporaryDirectory(prefix="codeignite-job-", dir=base_dir) as tmp:
         workspace = Path(tmp)
         os.chmod(
             workspace, stat.S_IRWXU | stat.S_IRGRP | stat.S_IXGRP | stat.S_IROTH | stat.S_IXOTH
@@ -177,6 +209,30 @@ def _job_workspace(code: str, extension: str) -> Iterator[Path]:
         os.chmod(source, stat.S_IRUSR | stat.S_IWUSR | stat.S_IRGRP | stat.S_IROTH)
 
         yield workspace
+
+
+def _host_mount_source(
+    workspace: Path, job_workspace_dir: Path | None, host_job_workspace_dir: Path | None
+) -> Path:
+    """Translate this process's own view of `workspace` into the path the
+    Docker daemon that actually receives the `docker run` call will
+    resolve — see the module docstring's "docker outside of docker" note.
+
+    Identity when `host_job_workspace_dir` is unset: the direct-daemon case,
+    where this process's filesystem and the daemon's are the same thing.
+    Otherwise `workspace` is guaranteed to sit under `job_workspace_dir`
+    (`_job_workspace` was given it as `base_dir`), so the daemon-visible
+    equivalent is `host_job_workspace_dir` plus whatever `workspace` added
+    on top of `job_workspace_dir`.
+    """
+    if host_job_workspace_dir is None:
+        return workspace
+    if job_workspace_dir is None:
+        raise ValueError(
+            "host_job_workspace_dir is set but job_workspace_dir is not — "
+            "the two must be configured together (see config.py)"
+        )
+    return host_job_workspace_dir / workspace.relative_to(job_workspace_dir)
 
 
 def _force_kill(container_name: str) -> None:

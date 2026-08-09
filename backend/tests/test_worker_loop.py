@@ -5,6 +5,7 @@ test_local_docker.py) and not storage/queue in isolation (see
 test_storage_objects.py / test_storage_queue.py)."""
 
 from collections.abc import Iterator
+from pathlib import Path
 
 import boto3
 import pytest
@@ -13,8 +14,9 @@ from moto import mock_aws
 from codeignite.config import settings
 from codeignite.domain.models import JobInput
 from codeignite.runner.base import RunResult
+from codeignite.runner.local_docker import LocalDockerRunner
 from codeignite.storage import objects, queue
-from codeignite.worker.loop import GracefulShutdown, handle_message, run_forever
+from codeignite.worker.loop import GracefulShutdown, get_runner, handle_message, run_forever
 
 
 class FakeRunner:
@@ -125,6 +127,37 @@ def test_a_poisoned_message_is_left_on_the_queue_for_redelivery() -> None:
     queue.extend_visibility(message.receipt_handle, visibility_timeout=0)
     remaining = queue.receive_jobs(max_messages=1, wait_time_seconds=0)
     assert len(remaining) == 1
+
+
+def test_get_runner_passes_through_the_workspace_dir_settings(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Regression test for the "docker outside of docker" bug: a worker
+    # running under docker-compose.yml talks to the host's Docker daemon
+    # through a mounted socket, so LocalDockerRunner needs the host-side
+    # path translation settings — see config.py and runner/local_docker.py.
+    # Without get_runner() passing these through, every job fails with
+    # "can't open file '/sandbox/main.py'" because the bind mount names a
+    # path that only exists inside the worker container, not on the host
+    # the daemon actually resolves it against.
+    monkeypatch.setattr(settings, "job_workspace_dir", "/job-workspace")
+    monkeypatch.setattr(settings, "host_job_workspace_dir", "/host/path/.job-workspace")
+
+    runner = get_runner()
+
+    assert isinstance(runner, LocalDockerRunner)
+    assert runner._job_workspace_dir == Path("/job-workspace")
+    assert runner._host_job_workspace_dir == Path("/host/path/.job-workspace")
+
+
+def test_get_runner_leaves_workspace_dirs_unset_by_default() -> None:
+    # settings.job_workspace_dir / host_job_workspace_dir default to None —
+    # the direct-daemon case (worker run outside a container).
+    runner = get_runner()
+
+    assert isinstance(runner, LocalDockerRunner)
+    assert runner._job_workspace_dir is None
+    assert runner._host_job_workspace_dir is None
 
 
 def test_graceful_shutdown_sets_requested_on_signal() -> None:

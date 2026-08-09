@@ -85,6 +85,11 @@ Starts both the API (`:8000`) and the worker. Requires:
   fast with a clear message if any is missing rather than starting
   half-configured.
 
+`docker compose up` from anywhere other than `backend/` will point the
+worker's job-workspace bind mount (`.job-workspace/`, created automatically)
+at the wrong host directory — see `docker-compose.yml`'s comments on
+`CODEIGNITE_HOST_JOB_WORKSPACE_DIR` for why the worker needs it at all.
+
 ### Or run both processes directly
 
 ```bash

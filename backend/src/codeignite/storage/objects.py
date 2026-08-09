@@ -117,7 +117,16 @@ def _get_json(key: str) -> dict[str, Any] | None:
     try:
         response = _client().get_object(Bucket=settings.jobs_bucket, Key=key)
     except ClientError as error:
-        if error.response.get("Error", {}).get("Code") in ("NoSuchKey", "404"):
+        error_info = error.response.get("Error", {})
+        code = error_info.get("Code")
+        # NoSuchKey is the honest "not there" when the caller has
+        # s3:ListBucket. Without ListBucket, S3 answers AccessDenied for a
+        # missing key instead (to avoid leaking existence) — same semantic
+        # for our poll path. Only treat that shape as missing; other
+        # AccessDenied (e.g. GetObject actually denied) still raises.
+        if code in ("NoSuchKey", "404"):
+            return None
+        if code == "AccessDenied" and "s3:ListBucket" in error_info.get("Message", ""):
             return None
         raise
     body: dict[str, Any] = json.loads(response["Body"].read())

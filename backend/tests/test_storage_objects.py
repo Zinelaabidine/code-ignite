@@ -69,6 +69,33 @@ class TestPutGetResult:
     def test_missing_result_returns_none(self) -> None:
         assert objects.get_result("does-not-exist") is None
 
+    def test_access_denied_for_list_bucket_is_treated_as_missing(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # Reproduces the hosted GET /runs/{id} 500: without s3:ListBucket,
+        # GetObject on a not-yet-written result.json raises AccessDenied
+        # mentioning ListBucket instead of NoSuchKey. Must become None so
+        # routes_runs returns 202 pending, not an unhandled 500.
+        from botocore.exceptions import ClientError
+
+        def _raise_list_bucket_denied(**_kwargs: object) -> None:
+            raise ClientError(
+                {
+                    "Error": {
+                        "Code": "AccessDenied",
+                        "Message": (
+                            "User is not authorized to perform: s3:ListBucket "
+                            'on resource: "arn:aws:s3:::bucket"'
+                        ),
+                    }
+                },
+                "GetObject",
+            )
+
+        monkeypatch.setattr(objects._client(), "get_object", _raise_list_bucket_denied)
+
+        assert objects.get_result("pending-job") is None
+
     def test_truncated_flag_round_trips(self) -> None:
         result = RunResult(
             stdout="x" * 10, stderr="", exit_code=0, duration_ms=1, status="ok", truncated=True

@@ -68,6 +68,22 @@ class Settings(BaseSettings):
     # 8` inside the Docker command plus headroom, per the architecture doc.
     max_execution_seconds: int = 10
 
+    # "Docker outside of Docker" support for `LocalDockerRunner`
+    # (`runner/local_docker.py`). The worker container talks to the *host's*
+    # Docker daemon through the mounted socket, so a `docker run -v
+    # <path>:/sandbox:ro` it builds must name a path the daemon can resolve —
+    # not a path inside the worker container, which the daemon knows nothing
+    # about. Both point at the same bind-mounted directory from two
+    # different vantage points: `job_workspace_dir` is where this process
+    # itself writes job files, `host_job_workspace_dir` is where
+    # `docker-compose.yml` bind-mounted that same directory from on the
+    # host. Both are unset when the runner talks directly to a Docker daemon
+    # on the same filesystem it writes to — e.g. stage 1's `pytest -m
+    # docker` on a dev machine, or `python -m codeignite.worker` run outside
+    # a container — where there is nothing to translate.
+    job_workspace_dir: str | None = None
+    host_job_workspace_dir: str | None = None
+
     log_level: str = "INFO"
 
 

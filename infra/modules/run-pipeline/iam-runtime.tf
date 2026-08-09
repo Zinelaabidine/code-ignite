@@ -27,6 +27,26 @@ data "aws_iam_policy_document" "run_api_policy" {
     resources = ["${aws_s3_bucket.jobs.arn}/jobs/*"]
   }
 
+  # Without ListBucket, GetObject on a key that does not exist yet returns
+  # AccessDenied (not NoSuchKey) — S3 refuses to confirm absence. The API
+  # polls result.json before the worker has written it, so that response
+  # crashed GET /runs/{job_id} with a 500 instead of the intended 202
+  # pending. Prefix-conditioned so this is not a bucket-wide listing grant.
+  statement {
+    sid    = "RunApiJobsListBucket"
+    effect = "Allow"
+    actions = [
+      "s3:ListBucket",
+    ]
+    resources = [aws_s3_bucket.jobs.arn]
+
+    condition {
+      test     = "StringLike"
+      variable = "s3:prefix"
+      values   = ["jobs/*"]
+    }
+  }
+
   statement {
     sid    = "RunApiQueueSend"
     effect = "Allow"
@@ -66,6 +86,24 @@ data "aws_iam_policy_document" "run_worker_policy" {
     # The worker reads input.json and writes result.json — same jobs/ prefix,
     # never the whole bucket.
     resources = ["${aws_s3_bucket.jobs.arn}/jobs/*"]
+  }
+
+  # Same S3 absence-vs-AccessDenied quirk as RunApiJobsListBucket — the
+  # worker's get_input path returns None on a missing key, which only works
+  # when ListBucket lets S3 answer with NoSuchKey.
+  statement {
+    sid    = "RunWorkerJobsListBucket"
+    effect = "Allow"
+    actions = [
+      "s3:ListBucket",
+    ]
+    resources = [aws_s3_bucket.jobs.arn]
+
+    condition {
+      test     = "StringLike"
+      variable = "s3:prefix"
+      values   = ["jobs/*"]
+    }
   }
 
   statement {

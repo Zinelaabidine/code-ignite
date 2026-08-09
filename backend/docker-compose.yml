@@ -50,8 +50,26 @@ services:
       CODEIGNITE_COGNITO_CLIENT_ID: ${CODEIGNITE_COGNITO_CLIENT_ID:?set in backend/.env}
       AWS_PROFILE: ${AWS_PROFILE:?set in backend/.env}
       AWS_REGION: ${CODEIGNITE_AWS_REGION:?set in backend/.env}
+      # "Docker outside of Docker": LocalDockerRunner shells out to `docker
+      # run` through the socket mounted below, which talks to the *host's*
+      # daemon — so the `-v <path>:/sandbox:ro` it builds must name a path
+      # the host can resolve, not a path inside this container. These two
+      # point at the same bind-mounted directory (see the volumes/ entry
+      # below) from each side. See config.py and runner/local_docker.py.
+      CODEIGNITE_JOB_WORKSPACE_DIR: /job-workspace
+      # ${PWD} is expanded by the `docker compose` CLI on the host, using
+      # *its* cwd — not this container's — which is exactly the host path
+      # the volume below bind-mounts from. Assumes `docker compose` is run
+      # from `backend/`, same as every other command in README.md.
+      CODEIGNITE_HOST_JOB_WORKSPACE_DIR: ${PWD}/.job-workspace
     volumes:
       - ~/.aws:/root/.aws:ro
       # The trust boundary — see Dockerfile.worker and
       # docs/code-playground-implementation-plan.md §0.
       - /var/run/docker.sock:/var/run/docker.sock
+      # Shared with the sandbox containers the worker spawns via the socket
+      # above — see CODEIGNITE_JOB_WORKSPACE_DIR/CODEIGNITE_HOST_JOB_WORKSPACE_DIR.
+      # Must be a host bind mount, not a named volume: LocalDockerRunner
+      # needs an actual host path to hand to `docker run -v`. Created
+      # automatically by Docker on first `up` if it doesn't exist yet.
+      - ${PWD}/.job-workspace:/job-workspace

@@ -55,6 +55,9 @@ out/
 backend/.venv/
 backend/build/
 backend/dist/
+# Host-side half of the worker's "docker outside of docker" bind mount — see
+# backend/docker-compose.yml. Job source files land here transiently.
+backend/.job-workspace/
 **/__pycache__/
 *.pyc
 .pytest_cache/

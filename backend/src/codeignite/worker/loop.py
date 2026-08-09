@@ -24,6 +24,7 @@ Two failure modes get careful handling, both from the architecture doc:
 
 import logging
 import signal
+from pathlib import Path
 from types import FrameType
 
 from codeignite.config import settings
@@ -39,8 +40,21 @@ def get_runner() -> Runner:
     """Composition root for the worker process. Stage 2's only
     implementation; the EKS migration swaps this for a `KubernetesJobRunner`
     without touching anything below it in this file.
+
+    Passes through `settings.job_workspace_dir` /
+    `settings.host_job_workspace_dir` — see `config.py` and
+    `runner/local_docker.py` for why `LocalDockerRunner` needs both when it
+    is talking to the host's Docker daemon "outside of Docker" through the
+    socket `docker-compose.yml` mounts into this container. Both are `None`
+    (the default) when running the worker directly on a dev machine, which
+    leaves `LocalDockerRunner`'s old, untranslated behaviour unchanged.
     """
-    return LocalDockerRunner()
+    return LocalDockerRunner(
+        job_workspace_dir=Path(settings.job_workspace_dir) if settings.job_workspace_dir else None,
+        host_job_workspace_dir=(
+            Path(settings.host_job_workspace_dir) if settings.host_job_workspace_dir else None
+        ),
+    )
 
 
 class GracefulShutdown:

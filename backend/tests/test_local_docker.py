@@ -20,6 +20,8 @@ from codeignite.runner.local_docker import (
     _build_argv,
     _classify,
     _decode_capped,
+    _host_mount_source,
+    _job_workspace,
 )
 
 
@@ -77,6 +79,46 @@ class TestBuildArgv:
         spec = LANGUAGES["python"]
         argv = _build_argv(tmp_path, spec, "job-test", 8)
         assert argv[-len(spec.command) - 2 :] == ["timeout", "8", *spec.command]
+
+
+class TestHostMountSource:
+    """`_host_mount_source` is the fix for "docker outside of docker": the
+    worker container's `docker run` reaches the *host's* daemon through the
+    mounted socket, so the `-v` argument must name a path the host can
+    resolve, not this process's own view of it. See config.py and
+    `LocalDockerRunner.__init__`.
+    """
+
+    def test_identity_when_no_host_dir_is_configured(self, tmp_path: Path) -> None:
+        # The direct-daemon case (stage 1's pytest -m docker, or the worker
+        # run outside a container): this process's filesystem and the
+        # daemon's are the same thing, so nothing is translated.
+        workspace = tmp_path / "codeignite-job-abc123"
+        assert _host_mount_source(workspace, None, None) == workspace
+
+    def test_translates_into_the_host_side_directory(self, tmp_path: Path) -> None:
+        job_workspace_dir = tmp_path / "container-view"
+        host_job_workspace_dir = Path("/host/view/of/the/same/mount")
+        workspace = job_workspace_dir / "codeignite-job-abc123"
+
+        result = _host_mount_source(workspace, job_workspace_dir, host_job_workspace_dir)
+
+        assert result == host_job_workspace_dir / "codeignite-job-abc123"
+
+    def test_raises_if_host_dir_is_set_without_the_container_side_dir(self, tmp_path: Path) -> None:
+        workspace = tmp_path / "codeignite-job-abc123"
+        with pytest.raises(ValueError, match="job_workspace_dir"):
+            _host_mount_source(workspace, None, Path("/host/view"))
+
+
+class TestJobWorkspaceBaseDir:
+    def test_defaults_to_the_system_temp_location(self) -> None:
+        with _job_workspace("print(1)", "py") as workspace:
+            assert workspace.exists()
+
+    def test_is_created_under_a_given_base_dir(self, tmp_path: Path) -> None:
+        with _job_workspace("print(1)", "py", base_dir=tmp_path) as workspace:
+            assert workspace.parent == tmp_path
 
 
 class TestClassify:
