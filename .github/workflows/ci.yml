@@ -109,9 +109,14 @@ jobs:
           echo "$VENV/bin" >> "$GITHUB_PATH"
           "$VENV/bin/python" --version
 
+      # [lambda] pulls in mangum: api/lambda_handler.py imports it, and
+      # `mypy --strict src` type-checks that file below. Without the extra,
+      # mypy fails with "Cannot find implementation or library stub for
+      # module named 'mangum'" even though nothing here runs the Lambda
+      # entrypoint.
       - name: Install dependencies
         working-directory: backend
-        run: pip install -e ".[dev]"
+        run: pip install -e ".[dev,lambda]"
 
       - name: Check formatting
         working-directory: backend
