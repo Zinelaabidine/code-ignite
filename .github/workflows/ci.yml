@@ -96,20 +96,22 @@ jobs:
       # setup-python's macOS installer still mkdir's /Users/runner/hostedtoolcache
       # even when AGENT_TOOLSDIRECTORY / RUNNER_TOOL_CACHE are overridden — that
       # path is not writable on this self-hosted runner. Use Homebrew's
-      # python@3.12 instead (matches PYTHON_VERSION).
+      # python@3.12 in a job-local venv instead (PEP 668 blocks system pip).
       - name: Set up Python
         run: |
           set -euo pipefail
           if ! command -v python3.12 >/dev/null 2>&1; then
             brew install python@3.12
           fi
-          PY_BIN="$(brew --prefix python@3.12)/bin"
-          echo "$PY_BIN" >> "$GITHUB_PATH"
-          "$PY_BIN/python3.12" --version
+          PY="$(brew --prefix python@3.12)/bin/python3.12"
+          VENV="${{ runner.temp }}/backend-venv"
+          "$PY" -m venv "$VENV"
+          echo "$VENV/bin" >> "$GITHUB_PATH"
+          "$VENV/bin/python" --version
 
       - name: Install dependencies
         working-directory: backend
-        run: python3.12 -m pip install -e ".[dev]"
+        run: pip install -e ".[dev]"
 
       - name: Check formatting
         working-directory: backend
