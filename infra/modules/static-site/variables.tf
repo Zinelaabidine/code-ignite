@@ -203,3 +203,28 @@ variable "waf_rate_limit_per_5min" {
     error_message = "waf_rate_limit_per_5min must be at least 100 (the AWS WAF minimum)."
   }
 }
+
+# ─── Code playground API origin ────────────────────────────────────────────────
+#
+# Both null by default — infra/modules/run-api is what the code-playground
+# implementation plan calls a "genuine design decision," deferred until
+# stage 5 shipped (see docs/code-playground-hosted-api-plan.md). Leaving
+# these null keeps this module deployable with no run_api module at all
+# (staging/prod today), matching how run_pipeline is wired.
+
+variable "api_origin_domain_name" {
+  description = "Bare domain name (no scheme) of the Lambda Function URL fronting the code-playground API — infra/modules/run-api's function_url_domain_name output. Null adds no API origin or behaviors to this distribution at all; must be set together with api_origin_access_control_id."
+  type        = string
+  default     = null
+
+  validation {
+    condition     = (var.api_origin_domain_name == null) == (var.api_origin_access_control_id == null)
+    error_message = "api_origin_domain_name and api_origin_access_control_id must be either both null or both set."
+  }
+}
+
+variable "api_origin_access_control_id" {
+  description = "ID of the Lambda-type CloudFront OAC that signs requests to the Function URL above — infra/modules/run-api's origin_access_control_id output."
+  type        = string
+  default     = null
+}

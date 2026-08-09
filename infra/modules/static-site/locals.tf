@@ -20,6 +20,13 @@ locals {
   # region and is the only way to grant CloudFront write access to a log bucket.
   cloudfront_log_delivery_canonical_id = "c4c1ede66af53448b93c283ce9448c4ba468c9432aa01d700d3878632f77d2d0"
 
+  # Path patterns routed to the code-playground API origin instead of S3 —
+  # matches api/routes_runs.py's actual route surface exactly (POST /runs,
+  # GET /runs/{job_id}, GET /healthz). "/runs*" covers both /runs routes in
+  # one CloudFront path pattern; healthz has no sub-paths so it needs no
+  # wildcard.
+  api_path_patterns = ["/runs*", "/healthz"]
+
   # Headers CloudFront has no first-class field for.
   custom_response_headers = {
     # Deny the browser access to hardware and ambient APIs this app never uses.

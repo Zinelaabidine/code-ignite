@@ -96,6 +96,35 @@ uvicorn codeignite.api.app:app --reload --port 8000
 python -m codeignite.worker
 ```
 
+### Running only the worker, against a hosted environment
+
+Once `infra/modules/run-api` is deployed (`docs/code-playground-hosted-api-plan.md`),
+the API runs on Lambda — you never run it locally against that environment.
+The worker still does, and always will: it's the one piece deliberately kept
+out of AWS entirely (see the plan doc's §0). To pick up real jobs submitted
+through the hosted playground:
+
+```bash
+aws sso login   # or however you assume the local-dev role — needs
+                # attach_runtime_policies_to_local_dev_role = true for the
+                # target environment (already the default for dev)
+
+cd backend
+cp .env.example .env
+# fill CODEIGNITE_JOBS_BUCKET / CODEIGNITE_RUNS_QUEUE_URL from
+# `terraform output run_api_ecr_repository_url` 's sibling outputs
+# jobs_bucket_name / runs_queue_url in infra/envs/dev — not a scratch
+# local setup, the real dev queue and bucket
+
+docker compose up worker   # or: python -m codeignite.worker
+```
+
+The playground only *finishes* jobs while this is running. A job submitted
+through the hosted UI while it's stopped sits on the queue — the frontend's
+poll loop gives up after 60s with "still running," and the job is picked up
+whenever this next starts, within SQS's 4-hour message retention. That's the
+deliberate shape of this architecture, not a bug.
+
 ### Try it
 
 ```bash
@@ -117,6 +146,7 @@ Docker.
 | --- | --- |
 | `pyproject.toml` | Dependencies, ruff, mypy, pytest config |
 | `docker-compose.yml`, `Dockerfile.api`, `Dockerfile.worker` | Local stage 2 topology — see the comments in each for the trust-boundary reasoning |
+| `Dockerfile.lambda` | The hosted API's image — `api/app.py` unmodified, run through the AWS Lambda Web Adapter. Built and pushed by `.github/workflows/deploy.yml`, not used by `docker compose`. See `docs/code-playground-hosted-api-plan.md` §3 |
 | `scripts/pull-images.sh` | Pre-pulls every image in `LANGUAGES` so a job's timeout never pays for a cold image pull |
 | `src/codeignite/config.py` | Environment contract (`pydantic-settings`), mirrors `frontend/lib/env.ts` |
 | `src/codeignite/domain/languages.py` | `LANGUAGES` registry — one entry per supported language |

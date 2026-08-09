@@ -28,12 +28,22 @@
 #   MFA_CONFIGURATION (OFF|OPTIONAL|ON), ADVANCED_SECURITY_MODE
 #   (OFF|AUDIT|ENFORCED), ENABLE_WAF (true|false)
 #   API_BASE_URL               code-playground API base URL (maps to
-#                              NEXT_PUBLIC_API_BASE_URL). There is no hosted
-#                              API yet, so this is normally unset — a missing
-#                              value resolves to `null` in frontend/lib/env.ts
-#                              rather than failing the build. Set it once the
-#                              API has a home (see
-#                              docs/code-playground-implementation-plan.md §8).
+#                              NEXT_PUBLIC_API_BASE_URL). Unset resolves to
+#                              `null` in frontend/lib/env.ts rather than
+#                              failing the build — the playground then shows
+#                              a "not available" panel instead of erroring.
+#                              Once module.run_api is deployed (see
+#                              docs/code-playground-hosted-api-plan.md), set
+#                              this to the site's own origin, e.g.
+#                              "https://myapp-dev.example.com" — same-origin
+#                              on purpose, so no CORS configuration is
+#                              needed (see the plan doc §1).
+#
+# This job also builds and pushes backend/Dockerfile.lambda to module.run_api's
+# ECR repository, tagged with the commit SHA, whenever backend/** or infra/**
+# changed — see the "backend" output above and TF_VAR_backend_image_tag below.
+# The worker is never built or deployed here: it runs on a developer's own
+# machine, never in AWS — see docs/code-playground-hosted-api-plan.md §0.
 #
 # None of these are secret, which is why they are variables rather than
 # secrets — but keeping them out of the repo keeps the template forkable and
@@ -93,6 +103,7 @@ jobs:
     outputs:
       frontend: ${{ steps.resolve.outputs.frontend }}
       infra: ${{ steps.resolve.outputs.infra }}
+      backend: ${{ steps.resolve.outputs.backend }}
     steps:
       - name: Checkout code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -123,6 +134,8 @@ jobs:
               - 'frontend/**'
             infra:
               - 'infra/**'
+            backend:
+              - 'backend/**'
 
       - name: Resolve deploy targets
         id: resolve
@@ -137,22 +150,34 @@ jobs:
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             frontend=$(to_bool "${{ inputs.deploy_frontend }}")
             infra=$(to_bool "${{ inputs.deploy_infra }}")
+            backend="$infra"
           elif [ -z "${{ steps.base.outputs.sha }}" ]; then
             # No usable diff base (e.g. the very first commit) — deploy both.
             frontend="true"
             infra="true"
+            backend="true"
           else
             frontend="${{ steps.filter.outputs.frontend }}"
             infra="${{ steps.filter.outputs.infra }}"
+            backend="${{ steps.filter.outputs.backend }}"
           fi
           # An infra-only push still needs the frontend rebuilt: Cognito IDs are
           # baked into the bundle at build time, so a new pool means a new build.
           if [ "$infra" = "true" ]; then
             frontend="true"
           fi
+          # A backend-only push still needs a Terraform apply: the only way
+          # module.run_api's Lambda picks up a newly built image is
+          # `terraform apply` passing the new tag as TF_VAR_backend_image_tag
+          # (see infra/modules/run-api/variables.tf's image_tag comment) —
+          # there is no separate "just update the running code" deploy path.
+          if [ "$backend" = "true" ]; then
+            infra="true"
+          fi
           {
             echo "frontend=$frontend"
             echo "infra=$infra"
+            echo "backend=$backend"
           } >> "$GITHUB_OUTPUT"
 
   deploy-config-check:
@@ -224,6 +249,12 @@ jobs:
       TF_VAR_mfa_configuration: ${{ vars.MFA_CONFIGURATION || 'OFF' }}
       TF_VAR_advanced_security_mode: ${{ vars.ADVANCED_SECURITY_MODE || 'OFF' }}
       TF_VAR_enable_waf: ${{ vars.ENABLE_WAF || 'false' }}
+      # Only meaningful together with the "Build and push backend Lambda
+      # image" step below, which pushes the image this exact tag names
+      # before Terraform Apply runs. On a run where that step is skipped
+      # (needs.changes.outputs.infra != 'true'), this value is passed but
+      # unused — module.run_api's aws_lambda_function isn't in that plan.
+      TF_VAR_backend_image_tag: ${{ github.sha }}
       AWS_REGION: ${{ vars.AWS_REGION || 'us-east-1' }}
     steps:
       - name: Checkout code
@@ -291,7 +322,10 @@ jobs:
             -target=module.static_site.time_sleep.cdn_iam_propagation \
             -target=module.run_pipeline.aws_iam_policy.github_deploy_run_pipeline_policy \
             -target=module.run_pipeline.aws_iam_role_policy_attachment.github_deploy_run_pipeline \
-            -target=module.run_pipeline.time_sleep.run_pipeline_iam_propagation
+            -target=module.run_pipeline.time_sleep.run_pipeline_iam_propagation \
+            -target=module.run_api.aws_iam_policy.github_deploy_run_api_policy \
+            -target=module.run_api.aws_iam_role_policy_attachment.github_deploy_run_api \
+            -target=module.run_api.time_sleep.run_api_iam_propagation
 
       - name: Refresh AWS credentials after IAM policy update
         if: needs.changes.outputs.infra == 'true'
@@ -299,6 +333,33 @@ jobs:
         with:
           role-to-assume: arn:aws:iam::${{ vars.AWS_ACCOUNT_ID }}:role/${{ vars.PROJECT_NAME }}-${{ steps.set-env.outputs.env_name }}-github-deploy-role
           aws-region: ${{ env.AWS_REGION }}
+
+      # An image must exist in module.run_api's ECR repository before
+      # aws_lambda_function.api (created in the untargeted apply further
+      # below) can reference a tag in it — CreateFunction fails against a
+      # tag that doesn't exist yet. The repository itself needs creating
+      # first, using the ecr:CreateRepository permission the IAM step above
+      # just attached and this step's refreshed credentials just picked up.
+      - name: Terraform Apply run-api ECR repository
+        if: needs.changes.outputs.infra == 'true'
+        working-directory: ${{ steps.set-env.outputs.tf_dir }}
+        run: |
+          set -euo pipefail
+          terraform apply -auto-approve -input=false -no-color \
+            -target=module.run_api.aws_ecr_repository.api
+
+      - name: Build and push backend Lambda image
+        if: needs.changes.outputs.infra == 'true'
+        working-directory: ${{ steps.set-env.outputs.tf_dir }}
+        run: |
+          set -euo pipefail
+          repo_url=$(terraform output -raw run_api_ecr_repository_url)
+          aws ecr get-login-password --region "${{ env.AWS_REGION }}" \
+            | docker login --username AWS --password-stdin "${repo_url%%/*}"
+
+          image="${repo_url}:${{ github.sha }}"
+          docker build -f ../../../backend/Dockerfile.lambda -t "$image" ../../../backend
+          docker push "$image"
 
       - name: Terraform Plan
         if: needs.changes.outputs.infra == 'true'

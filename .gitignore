@@ -53,6 +53,8 @@ out/
 # Backend (Python)
 # ----------------------------------------------------------------------
 backend/.venv/
+backend/build/
+backend/dist/
 **/__pycache__/
 *.pyc
 .pytest_cache/
@@ -72,6 +74,11 @@ htmlcov/
 .DS_Store
 **/.DS_Store
 .vscode/
+
+# ----------------------------------------------------------------------
+# Graphify (generated knowledge graph output)
+# ----------------------------------------------------------------------
+graphify-out/
 
 # ----------------------------------------------------------------------
 # Claude Code — local machine config (not shared)

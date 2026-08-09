@@ -42,6 +42,18 @@ updates:
       minor-and-patch:
         update-types: [minor, patch]
 
+  # One directory entry covers every Dockerfile in it — Dockerfile.api,
+  # Dockerfile.worker, and Dockerfile.lambda all get scanned, including the
+  # FROM public.ecr.aws/awsguru/aws-lambda-adapter pin in Dockerfile.lambda.
+  - package-ecosystem: docker
+    directory: /backend
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+    open-pull-requests-limit: 5
+    labels: [dependencies, backend]
+
   - package-ecosystem: github-actions
     directory: /
     schedule:
@@ -60,6 +72,8 @@ updates:
       - /infra/envs/staging
       - /infra/envs/prod
       - /infra/modules/static-site
+      - /infra/modules/run-pipeline
+      - /infra/modules/run-api
     schedule:
       interval: weekly
       day: monday

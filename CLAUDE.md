@@ -13,8 +13,9 @@
 ## 1. Architecture Overview
 
 A Next.js static export served from a private S3 bucket through CloudFront,
-with authentication handled by an Amazon Cognito User Pool. There is no backend
-API, no database, and no compute layer — by design.
+with authentication handled by an Amazon Cognito User Pool. **This is the base
+template's architecture — a fresh fork with no features added.** There is no
+backend API, no database, and no compute layer in that state, by design.
 
 ```
 Browser (Next.js static export)
@@ -25,6 +26,25 @@ Cognito User Pool
   |  pool + client IDs baked into the bundle at build time
 CloudFront  ──►  S3 (private, Origin Access Control)
 ```
+
+**This repository has since grown one feature on top of that template: the
+code playground** (`backend/`, `infra/modules/run-pipeline`,
+`infra/modules/run-api`) — sandboxed code execution behind Cognito, SQS, and
+S3, with its API hosted on Lambda and its worker running on a developer's own
+machine (deliberately never in AWS — see
+`docs/code-playground-hosted-api-plan.md` §0). See
+`docs/code-playground-plan.md` for that feature's architecture and
+`docs/code-playground-implementation-plan.md` /
+`docs/code-playground-hosted-api-plan.md` for how it was built, stage by
+stage. The "no server by default" principle below still describes how to
+*add* features to this template; the code playground is the one place so far
+where a feature genuinely needed a server (a Docker daemon for the worker)
+and Terraform reflects that explicitly rather than pretending otherwise.
+Section 2's repository structure and this section's diagram describe the
+template in its unmodified state; a full rewrite reflecting the code
+playground's addition is tracked as its own step
+(`docs/code-playground-implementation-plan.md` PR 9,
+`docs/update-architecture`) rather than folded into this note.
 
 ### Core design principles
 

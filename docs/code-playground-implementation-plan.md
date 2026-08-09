@@ -518,10 +518,17 @@ Each of these is a real temptation with a real reason to wait:
   debugging session.
 - **Lambda for the runner.** No nested containers, and the sandbox flags do not
   map onto it. The whole migration story depends on those flags surviving.
-- **A hosted API.** The API needs a home (ECS/App Runner + a CloudFront `/api`
-  behaviour, or ALB) before staging and prod get the module. That is a genuine
-  design decision and it belongs after stage 5, when there is something worth
-  hosting.
+- **A hosted API.** The API needs a home before staging and prod get the
+  module. That is a genuine design decision and it belongs after stage 5,
+  when there is something worth hosting — see
+  `docs/code-playground-hosted-api-plan.md` for the plan once it was
+  actually needed (PR 8 shipped, `/playground` was live but pointed at
+  nothing). Decided against any AWS compute running the worker at all —
+  not ECS, not EKS, not even a plain EC2 box: `LocalDockerRunner` and
+  `worker/loop.py` stay exactly as stage 2 built them, running on a
+  developer's own machine against the real SQS queue and S3 bucket. Only
+  the stateless API moves to AWS, and it moves to Lambda — the one piece
+  that genuinely doesn't need a persistent server.
 - **Deep hardening** — seccomp profiles, gVisor/Kata, per-user egress policy.
   The current flags are the floor, not the ceiling; harden when the thing is
   reachable from the internet, and treat that as a blocking task before it is.
@@ -544,6 +551,15 @@ Each of these is a real temptation with a real reason to wait:
 
 PRs 1–2 are the half-day the architecture doc describes. Everything after is
 the machinery that makes the EKS swap mechanical.
+
+PRs 10–13 continue in `docs/code-playground-hosted-api-plan.md` — hosting
+the API (serverless, on Lambda) in dev so `/playground` actually works
+instead of showing the "not available in this environment" panel. The
+worker is explicitly not part of that hosting: it keeps running locally
+against the real dev queue and bucket, exactly as stage 2 built it. Kept as
+a separate document rather than appended here because it's a decision this
+plan explicitly deferred ("A hosted API... belongs after stage 5"), not
+part of the original nine-PR sequence.
 
 ---
 
