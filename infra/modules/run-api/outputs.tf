@@ -1,8 +1,3 @@
-output "ecr_repository_url" {
-  description = "URL of the ECR repository deploy.yml pushes the backend/Dockerfile.lambda image to, e.g. \"123456789012.dkr.ecr.us-east-1.amazonaws.com/myapp-dev-run-api\"."
-  value       = aws_ecr_repository.api.repository_url
-}
-
 output "lambda_function_name" {
   description = "Name of the run-api Lambda function."
   value       = aws_lambda_function.api.function_name

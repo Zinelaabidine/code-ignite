@@ -107,11 +107,10 @@ module "run_api" {
   cognito_client_id    = module.static_site.cognito_client_id
   run_api_policy_arn   = module.run_pipeline.run_api_policy_arn
 
-  # Set by deploy.yml (TF_VAR_backend_image_tag) to the commit SHA it just
-  # built and pushed to this module's ECR repository. The default only
-  # matters before the first image has ever been pushed — CreateFunction
-  # will fail against it, which is the point: it forces an explicit,
-  # deliberate first image push rather than silently deploying a
-  # function that references nothing.
-  image_tag = var.backend_image_tag
+  # lambda_package_path is deliberately not set here — the module's own
+  # default (../../../backend/dist/api.zip, relative to
+  # infra/modules/run-api) already resolves to backend/dist/api.zip, which
+  # is exactly what backend/scripts/build-lambda-zip.sh produces. Run that
+  # script (locally, or as deploy.yml does in CI) before every apply where
+  # backend source or dependencies changed.
 }

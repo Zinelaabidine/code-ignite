@@ -11,7 +11,10 @@ WORKDIR /app
 COPY pyproject.toml ./
 COPY src ./src
 
-RUN pip install --no-cache-dir .
+# [server] pulls in uvicorn — split out of the base dependencies because the
+# hosted Lambda deployment (api/lambda_handler.py) never runs a server
+# process. See pyproject.toml's [project.optional-dependencies] comment.
+RUN pip install --no-cache-dir ".[server]"
 
 EXPOSE 8000
 

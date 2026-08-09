@@ -39,9 +39,11 @@
 #                              on purpose, so no CORS configuration is
 #                              needed (see the plan doc §1).
 #
-# This job also builds and pushes backend/Dockerfile.lambda to module.run_api's
-# ECR repository, tagged with the commit SHA, whenever backend/** or infra/**
-# changed — see the "backend" output above and TF_VAR_backend_image_tag below.
+# This job also builds backend/scripts/build-lambda-zip.sh's zip and points
+# module.run_api's Lambda at it via TF_VAR_lambda_package_path, whenever
+# backend/** or infra/** changed — see the "backend" output above. No
+# container image, no ECR: the hosted API is a zip-packaged Lambda (Mangum),
+# not a Docker image — see docs/code-playground-hosted-api-plan.md §0 and §3.
 # The worker is never built or deployed here: it runs on a developer's own
 # machine, never in AWS — see docs/code-playground-hosted-api-plan.md §0.
 #
@@ -247,12 +249,12 @@ jobs:
       TF_VAR_mfa_configuration: ${{ vars.MFA_CONFIGURATION || 'OFF' }}
       TF_VAR_advanced_security_mode: ${{ vars.ADVANCED_SECURITY_MODE || 'OFF' }}
       TF_VAR_enable_waf: ${{ vars.ENABLE_WAF || 'false' }}
-      # Only meaningful together with the "Build and push backend Lambda
-      # image" step below, which pushes the image this exact tag names
-      # before Terraform Apply runs. On a run where that step is skipped
+      # Only meaningful together with the "Build Lambda zip" step below,
+      # which builds the zip this exact path names before Terraform Apply
+      # runs. On a run where that step is skipped
       # (needs.changes.outputs.infra != 'true'), this value is passed but
       # unused — module.run_api's aws_lambda_function isn't in that plan.
-      TF_VAR_backend_image_tag: ${{ github.sha }}
+      TF_VAR_lambda_package_path: ${{ github.workspace }}/backend/dist/api.zip
       AWS_REGION: ${{ vars.AWS_REGION || 'us-east-1' }}
     steps:
       - name: Checkout code
@@ -346,48 +348,23 @@ jobs:
           role-to-assume: arn:aws:iam::${{ vars.AWS_ACCOUNT_ID }}:role/${{ vars.PROJECT_NAME }}-${{ steps.set-env.outputs.env_name }}-github-deploy-role
           aws-region: ${{ env.AWS_REGION }}
 
-      # An image must exist in module.run_api's ECR repository before
-      # aws_lambda_function.api (created in the untargeted apply further
-      # below) can reference a tag in it — CreateFunction fails against a
-      # tag that doesn't exist yet. The repository itself needs creating
-      # first, using the ecr:CreateRepository permission the IAM step above
-      # just attached and this step's refreshed credentials just picked up.
-      - name: Terraform Apply run-api ECR repository
+      - name: Setup Python
         if: needs.changes.outputs.infra == 'true'
-        working-directory: ${{ steps.set-env.outputs.tf_dir }}
+        uses: actions/setup-python@e797f83bcb11b83ae66e0230d6156d7c80228e7c # v6.0.0
+        with:
+          python-version: "3.12"
+
+      # Builds backend/dist/api.zip against Lambda's own manylinux2014/
+      # Python 3.12 target (see the script), regardless of the runner's own
+      # platform. No Docker, no ECR: TF_VAR_lambda_package_path (set above)
+      # points module.run_api's aws_lambda_function straight at this zip.
+      - name: Build Lambda zip
+        if: needs.changes.outputs.infra == 'true'
+        working-directory: backend
         run: |
           set -euo pipefail
-          terraform apply -auto-approve -input=false -no-color \
-            -target=module.run_api.aws_ecr_repository.api
-
-      - name: Build and push backend Lambda image
-        if: needs.changes.outputs.infra == 'true'
-        working-directory: ${{ steps.set-env.outputs.tf_dir }}
-        env:
-          # Self-hosted macOS runners: Docker's DetectDefaultStore fills an empty
-          # credsStore with osxkeychain, and docker login then fails headlessly
-          # ("User interaction is not allowed", err -25308). Skip login entirely:
-          # point this registry at docker-credential-ecr-login (ships with Docker
-          # Desktop) so push uses the job's AWS env credentials instead.
-          DOCKER_CONFIG: ${{ runner.temp }}/docker-config
-        run: |
-          set -euo pipefail
-          mkdir -p "$DOCKER_CONFIG"
-          if [ -d "${HOME}/.docker/cli-plugins" ]; then
-            ln -sfn "${HOME}/.docker/cli-plugins" "$DOCKER_CONFIG/cli-plugins"
-          fi
-
-          repo_url=$(terraform output -raw run_api_ecr_repository_url)
-          registry="${repo_url%%/*}"
-          if ! command -v docker-credential-ecr-login >/dev/null 2>&1; then
-            echo "::error::docker-credential-ecr-login not on PATH (required for headless ECR auth on macOS)"
-            exit 1
-          fi
-          printf '%s\n' "{\"auths\":{},\"credHelpers\":{\"${registry}\":\"ecr-login\"}}" \
-            > "$DOCKER_CONFIG/config.json"
-
-          image="${repo_url}:${{ github.sha }}"
-          docker build -f ../../../backend/Dockerfile.lambda -t "$image" ../../../backend
+          python3 -m pip install --upgrade pip
+          ./scripts/build-lambda-zip.sh
           docker push "$image"
 
       - name: Terraform Plan

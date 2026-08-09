@@ -1,18 +1,23 @@
-# The API itself — api/app.py's create_app(), unmodified, running inside the
-# AWS Lambda Web Adapter (backend/Dockerfile.lambda). Container image
-# deployment, not zip: pyjwt[crypto] pulls in cryptography, which ships
-# compiled extensions, and a container image sidesteps the manylinux
-# packaging problem entirely by building on Amazon Linux at `docker build`
-# time instead of resolving wheels at deploy time. See
-# docs/code-playground-hosted-api-plan.md §3.
+# The API itself — api/app.py's create_app(), reached through
+# api/lambda_handler.py's Mangum wrapper. Zip-packaged, not a container
+# image: this repo uses no ECR, ECS, or EKS anywhere (see
+# docs/code-playground-hosted-api-plan.md §0), and Lambda's container image
+# support only ever pulls from ECR regardless of where the image is built or
+# pushed — a container image was never on the table once that constraint was
+# fixed. backend/scripts/build-lambda-zip.sh resolves pyjwt[crypto]'s
+# compiled cryptography dependency against Lambda's own manylinux/Python
+# 3.12 target so the zip runs correctly regardless of what platform built it.
 resource "aws_lambda_function" "api" {
   provider = aws.this
 
   function_name = "${local.name_prefix}-run-api"
   role          = aws_iam_role.lambda_execution.arn
 
-  package_type = "Image"
-  image_uri    = "${aws_ecr_repository.api.repository_url}:${var.image_tag}"
+  runtime = "python3.12"
+  handler = "codeignite.api.lambda_handler.handler"
+
+  filename         = var.lambda_package_path
+  source_code_hash = filebase64sha256(var.lambda_package_path)
 
   memory_size = var.lambda_memory_mb
   timeout     = var.lambda_timeout_seconds
@@ -32,10 +37,6 @@ resource "aws_lambda_function" "api" {
       CODEIGNITE_RUNS_QUEUE_URL       = var.runs_queue_url
       CODEIGNITE_COGNITO_USER_POOL_ID = var.cognito_user_pool_id
       CODEIGNITE_COGNITO_CLIENT_ID    = var.cognito_client_id
-      # Required by the AWS Lambda Web Adapter (backend/Dockerfile.lambda) —
-      # tells it which local port the adapter's sidecar `uvicorn` process
-      # listens on.
-      PORT = "8000"
     }
   }
 

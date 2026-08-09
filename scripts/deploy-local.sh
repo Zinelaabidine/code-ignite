@@ -7,10 +7,15 @@
 # Mirrors deploy.yml step for step:
 #   1. ci checks       (ci.yml: frontend lint/typecheck/test/build, terraform
 #                        fmt/validate/lockfiles, IaC + secret scan, npm audit)
-#   2. terraform apply (targeted IAM policies first, then full plan -> guard
-#                        against destructive changes -> apply)
+#   2. terraform apply (targeted IAM policies → ECR repo → Lambda image push →
+#                        full plan → destructive-plan guard → apply)
 #   3. frontend build  (Cognito IDs baked in from terraform output)
 #   4. S3 sync + CloudFront invalidation + prune
+#
+# The worker image is never built or deployed here — it runs on a developer's
+# own machine, never in AWS (see docs/code-playground-hosted-api-plan.md §0).
+# Only backend/Dockerfile.lambda is pushed to module.run_api's ECR, tagged with
+# the current git SHA (same as TF_VAR_backend_image_tag in deploy.yml).
 #
 # Authentication is whatever `aws` already resolves in your shell (profile,
 # env vars, SSO, or an assumed local-dev-role — see --assume-role below). This
@@ -27,6 +32,9 @@
 #   --infra-only          Skip the frontend; only run terraform apply.
 #   --skip-checks         Skip the ci.yml-equivalent checks (not recommended).
 #   --skip-security       Skip the IaC/secret scan + npm audit (not recommended).
+#   --skip-backend-image  Skip ECR apply + Lambda image build/push (infra still
+#                          plans/applies; image_tag stays at its prior value
+#                          unless you export TF_VAR_backend_image_tag yourself).
 #   --allow-destroy       Permit a terraform plan that deletes/replaces resources.
 #   --yes                 Skip interactive confirmations (still shown, not asked).
 #   --profile <name>      AWS CLI profile to use for this run.
@@ -35,6 +43,10 @@
 #                          --mfa-serial if the role's trust policy requires MFA.
 #   --mfa-serial <arn>    MFA device ARN, used with --assume-role.
 #   -h, --help             Show this help.
+#
+# Optional env (mirrors deploy.yml vars.API_BASE_URL):
+#   API_BASE_URL / NEXT_PUBLIC_API_BASE_URL — baked into the frontend build.
+#   Unset leaves the playground's "not available" path (see frontend/lib/env.ts).
 #
 # PROD SAFETY: deploying to prod always requires typing "prod" to confirm,
 # even with --yes. There is no flag that skips it.
@@ -113,7 +125,7 @@ require_cmd() {
 }
 
 usage() {
-  sed -n '2,40p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+  sed -n '2,52p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
   exit 0
 }
 
@@ -124,6 +136,7 @@ FRONTEND_ONLY=false
 INFRA_ONLY=false
 SKIP_CHECKS=false
 SKIP_SECURITY=false
+SKIP_BACKEND_IMAGE=false
 ALLOW_DESTROY=false
 AUTO_YES=false
 AWS_PROFILE_ARG=""
@@ -141,6 +154,7 @@ while [[ $# -gt 0 ]]; do
     --infra-only) INFRA_ONLY=true; shift ;;
     --skip-checks) SKIP_CHECKS=true; shift ;;
     --skip-security) SKIP_SECURITY=true; shift ;;
+    --skip-backend-image) SKIP_BACKEND_IMAGE=true; shift ;;
     --allow-destroy) ALLOW_DESTROY=true; shift ;;
     --yes) AUTO_YES=true; shift ;;
     --profile) AWS_PROFILE_ARG="${2:-}"; [[ -n "$AWS_PROFILE_ARG" ]] || fail "--profile requires a value"; shift 2 ;;
@@ -196,13 +210,17 @@ if [[ -n "$AWS_PROFILE_ARG" ]]; then
   export AWS_PROFILE="$AWS_PROFILE_ARG"
 fi
 
-if [[ -n "$ASSUME_ROLE_ARN" ]]; then
-  step "assuming role $ASSUME_ROLE_ARN"
-  assume_args=(--role-arn "$ASSUME_ROLE_ARN" --role-session-name "local-deploy-$(date +%s)" --duration-seconds 3600)
+assume_deploy_role() {
+  [[ -n "$ASSUME_ROLE_ARN" ]] || return 0
+  local session_name="${1:-local-deploy-$(date +%s)}"
+  step "assuming role $ASSUME_ROLE_ARN ($session_name)"
+  local assume_args=(--role-arn "$ASSUME_ROLE_ARN" --role-session-name "$session_name" --duration-seconds 3600)
   if [[ -n "$MFA_SERIAL" ]]; then
+    local MFA_CODE
     read -rp "MFA token code for $MFA_SERIAL: " MFA_CODE
     assume_args+=(--serial-number "$MFA_SERIAL" --token-code "$MFA_CODE")
   fi
+  local creds_json
   creds_json="$(aws sts assume-role "${assume_args[@]}" --output json)" \
     || fail "sts assume-role failed"
   export AWS_ACCESS_KEY_ID
@@ -213,7 +231,9 @@ if [[ -n "$ASSUME_ROLE_ARN" ]]; then
   AWS_SESSION_TOKEN="$(jq -r '.Credentials.SessionToken' <<<"$creds_json")"
   unset AWS_PROFILE
   pass "assumed role, session valid until $(jq -r '.Credentials.Expiration' <<<"$creds_json")"
-fi
+}
+
+assume_deploy_role "local-deploy-$(date +%s)"
 
 step "AWS identity"
 CALLER_JSON="$(aws sts get-caller-identity --output json)" \
@@ -227,6 +247,21 @@ CALLER_ACCOUNT="$(jq -r '.Account' <<<"$CALLER_JSON")"
 # \s in -E mode, so it silently fails to match and prints the whole line back.
 AWS_REGION_VAL="$(grep -E '^[[:space:]]*aws_region[[:space:]]*=' "infra/common.tfvars" | head -1 | sed -E 's/.*=[[:space:]]*"([^"]*)".*/\1/')"
 AWS_REGION_VAL="${AWS_REGION_VAL:-us-east-1}"
+export AWS_DEFAULT_REGION="$AWS_REGION_VAL"
+export AWS_REGION="$AWS_REGION_VAL"
+
+# Same tag deploy.yml uses (github.sha) — must exist in ECR before the
+# untargeted apply creates/updates aws_lambda_function.api. When
+# --skip-backend-image, leave TF_VAR alone unless the caller already set it;
+# otherwise resolve the prior tag from state after terraform init (below).
+IMAGE_TAG="$(git rev-parse HEAD)"
+if [[ "$SKIP_BACKEND_IMAGE" != true ]]; then
+  export TF_VAR_backend_image_tag="${TF_VAR_backend_image_tag:-$IMAGE_TAG}"
+fi
+
+# Optional frontend API URL (deploy.yml: vars.API_BASE_URL). Prefer an
+# explicit NEXT_PUBLIC_* if the caller already set one.
+API_BASE_URL_VAL="${NEXT_PUBLIC_API_BASE_URL:-${API_BASE_URL:-}}"
 
 echo ""
 if [[ "$AUTO_YES" != true ]]; then
@@ -236,6 +271,11 @@ fi
 if [[ "$ENVIRONMENT" == "prod" ]]; then
   read -rp "This targets PRODUCTION. Type 'prod' to confirm: " prod_confirm
   [[ "$prod_confirm" == "prod" ]] || fail "aborted — confirmation text did not match"
+fi
+
+# docker is only required when we will push the Lambda image.
+if [[ "$DEPLOY_INFRA" == true && "$SKIP_BACKEND_IMAGE" != true ]]; then
+  require_cmd docker
 fi
 
 # ─── Checks (mirrors ci.yml) ──────────────────────────────────────────────────
@@ -268,6 +308,11 @@ elif command -v trivy >/dev/null 2>&1; then
   pass "npm audit clean"
 fi
 
+# True when this env root declares module.run_api (currently only dev).
+env_has_run_api() {
+  grep -qE '^[[:space:]]*module[[:space:]]+"run_api"[[:space:]]*\{' "$TF_DIR/main.tf" 2>/dev/null
+}
+
 # ─── Terraform ─────────────────────────────────────────────────────────────────
 
 if [[ "$DEPLOY_INFRA" == true ]]; then
@@ -280,19 +325,92 @@ if [[ "$DEPLOY_INFRA" == true ]]; then
   # attach those policies to itself before it can create anything else.
   # Idempotent and harmless once the policies already exist and are attached.
   step "apply IAM deploy policies first"
+  iam_targets=(
+    -target=module.static_site.aws_iam_policy.github_deploy_core_policy
+    -target=module.static_site.aws_iam_role_policy_attachment.github_deploy_core
+    -target=module.static_site.time_sleep.iam_propagation
+    -target=module.static_site.aws_iam_policy.github_deploy_storage_policy
+    -target=module.static_site.aws_iam_role_policy_attachment.github_deploy_storage
+    -target=module.static_site.time_sleep.storage_iam_propagation
+    -target=module.static_site.aws_iam_policy.github_deploy_cdn_policy
+    -target=module.static_site.aws_iam_role_policy_attachment.github_deploy_cdn
+    -target=module.static_site.time_sleep.cdn_iam_propagation
+  )
+  if env_has_run_api; then
+    iam_targets+=(
+      -target=module.run_pipeline.aws_iam_policy.github_deploy_run_pipeline_policy
+      -target=module.run_pipeline.aws_iam_role_policy_attachment.github_deploy_run_pipeline
+      -target=module.run_pipeline.time_sleep.run_pipeline_iam_propagation
+      -target=module.run_api.aws_iam_policy.github_deploy_run_api_policy
+      -target=module.run_api.aws_iam_role_policy_attachment.github_deploy_run_api
+      -target=module.run_api.time_sleep.run_api_iam_propagation
+    )
+  fi
   terraform -chdir="$TF_DIR" apply -refresh=false -auto-approve -input=false \
-    -target=module.static_site.aws_iam_policy.github_deploy_core_policy \
-    -target=module.static_site.aws_iam_role_policy_attachment.github_deploy_core \
-    -target=module.static_site.time_sleep.iam_propagation \
-    -target=module.static_site.aws_iam_policy.github_deploy_storage_policy \
-    -target=module.static_site.aws_iam_role_policy_attachment.github_deploy_storage \
-    -target=module.static_site.time_sleep.storage_iam_propagation \
-    -target=module.static_site.aws_iam_policy.github_deploy_cdn_policy \
-    -target=module.static_site.aws_iam_role_policy_attachment.github_deploy_cdn \
-    -target=module.static_site.time_sleep.cdn_iam_propagation \
+    "${iam_targets[@]}" \
     || warn "targeted IAM apply failed or had nothing to do — continuing to full plan"
 
-  step "terraform plan"
+  # deploy.yml re-assumes the OIDC role so the new policy grants take effect
+  # before ECR create / image push. Same idea when --assume-role was used.
+  if [[ -n "$ASSUME_ROLE_ARN" ]]; then
+    assume_deploy_role "local-deploy-refresh-$(date +%s)"
+  else
+    warn "IAM policies may take a few seconds to propagate; if ECR/Lambda steps fail with AccessDenied, re-run."
+  fi
+
+  if [[ "$SKIP_BACKEND_IMAGE" == true ]]; then
+    if [[ -z "${TF_VAR_backend_image_tag:-}" ]] && env_has_run_api; then
+      # Keep the Lambda on whatever tag is already in state so plan does not
+      # flip image_uri to the unused default "unset".
+      prior_uri="$(terraform -chdir="$TF_DIR" show -json 2>/dev/null | jq -r '
+        .. | objects | select(.type? == "aws_lambda_function" and .name? == "api")
+          | .values.image_uri // empty
+      ' 2>/dev/null | head -1 || true)"
+      if [[ -n "$prior_uri" && "$prior_uri" == *:* ]]; then
+        export TF_VAR_backend_image_tag="${prior_uri##*:}"
+        pass "reusing deployed image tag from state: $TF_VAR_backend_image_tag"
+      else
+        warn "no prior Lambda image_uri in state — set TF_VAR_backend_image_tag or omit --skip-backend-image"
+      fi
+    fi
+    warn "skipping ECR apply + Lambda image push (--skip-backend-image); TF_VAR_backend_image_tag=${TF_VAR_backend_image_tag:-<unset>}"
+  elif env_has_run_api; then
+    # Image must exist in ECR before aws_lambda_function.api can reference the
+    # tag — CreateFunction fails against a missing tag. Repository first.
+    step "apply run-api ECR repository"
+    terraform -chdir="$TF_DIR" apply -auto-approve -input=false \
+      -target=module.run_api.aws_ecr_repository.api
+
+    step "build and push backend Lambda image (tag=$TF_VAR_backend_image_tag)"
+    # Match deploy.yml: Docker on Darwin fills an empty credsStore with
+    # osxkeychain (headless login → err -25308). Use ecr-login instead.
+    DOCKER_CONFIG="$(mktemp -d "${TMPDIR:-/tmp}/deploy-local-docker.XXXXXX")"
+    export DOCKER_CONFIG
+    cleanup_docker_config() { rm -rf "$DOCKER_CONFIG"; }
+    trap cleanup_docker_config EXIT
+    if [ -d "${HOME}/.docker/cli-plugins" ]; then
+      ln -sfn "${HOME}/.docker/cli-plugins" "$DOCKER_CONFIG/cli-plugins"
+    fi
+
+    repo_url="$(terraform -chdir="$TF_DIR" output -raw run_api_ecr_repository_url)"
+    registry="${repo_url%%/*}"
+    if ! command -v docker-credential-ecr-login >/dev/null 2>&1; then
+      fail "docker-credential-ecr-login not on PATH (required for headless ECR auth on macOS)"
+    fi
+    printf '%s\n' "{\"auths\":{},\"credHelpers\":{\"${registry}\":\"ecr-login\"}}" \
+      > "$DOCKER_CONFIG/config.json"
+
+    image="${repo_url}:${TF_VAR_backend_image_tag}"
+    docker build -f backend/Dockerfile.lambda -t "$image" backend
+    docker push "$image"
+    pass "pushed $image"
+    trap - EXIT
+    cleanup_docker_config
+  else
+    warn "$TF_DIR has no module.run_api — skipping Lambda image build (staging/prod may not host the API yet)"
+  fi
+
+  step "terraform plan (TF_VAR_backend_image_tag=$TF_VAR_backend_image_tag)"
   terraform -chdir="$TF_DIR" plan -out=tfplan -input=false
 
   step "checking for destructive changes"
@@ -350,6 +468,8 @@ if [[ "$DEPLOY_FRONTEND" == true ]]; then
     export NEXT_PUBLIC_AWS_REGION="$AWS_REGION_VAL"
     export NEXT_PUBLIC_USER_POOL_ID="$USER_POOL_ID"
     export NEXT_PUBLIC_CLIENT_ID="$CLIENT_ID"
+    # Optional — empty resolves to null in frontend/lib/env.ts.
+    export NEXT_PUBLIC_API_BASE_URL="$API_BASE_URL_VAL"
     npm run build
   )
   pass "frontend built to frontend/out"

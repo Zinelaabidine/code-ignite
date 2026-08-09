@@ -15,12 +15,21 @@ instance for both API and worker) after clarifying the actual requirement:
 **no AWS compute runs untrusted code, ever** — not ECS, not EKS, not EC2.
 Code execution happens on your machine or nowhere.
 
-**Status:** implemented (PRs 10–12's Terraform, Dockerfile, and CI wiring all
-written), not yet applied or verified against real AWS — this session has no
-AWS credentials and cannot run `terraform apply` or exercise the deploy
-pipeline. See each PR's file list below for what landed. PR 13 (flipping
-`vars.API_BASE_URL`) is a manual GitHub Actions variable change, listed here
-for completeness but not something this session can do on your behalf.
+**Status:** implemented (PRs 10–12's Terraform, Lambda handler/build script,
+and CI wiring all written), not yet applied or verified against real AWS —
+this session has no AWS credentials and cannot run `terraform apply` or
+exercise the deploy pipeline. See each PR's file list below for what landed.
+PR 13 (flipping `vars.API_BASE_URL`) is a manual GitHub Actions variable
+change, listed here for completeness but not something this session can do
+on your behalf.
+
+**Revised again after PR 10 was first built**: the initial implementation
+packaged the API as a container image pushed to a new ECR repository. That
+was reworked to a zip-packaged Lambda (Mangum, `build-lambda-zip.sh`) after
+clarifying that this repo uses no ECR, ECS, or EKS anywhere, and that
+container images are pointless without one — Lambda's container-image
+support can only pull from ECR, never Docker Hub or any other registry,
+regardless of where the image is built or pushed.
 
 ---
 
@@ -106,46 +115,53 @@ assets already have.
 
 ## 3. Packaging the API for Lambda
 
-**AWS Lambda Web Adapter**, not Mangum. The adapter runs alongside the
-existing `uvicorn` process inside the Lambda execution environment and
-translates Lambda's invoke event to a plain HTTP request against
-`localhost` — `api/app.py`'s `create_app()` doesn't need to know it's
-running in Lambda at all. The alternative (Mangum) would work too, but it
-means importing an ASGI-to-Lambda shim into application code; the adapter
-keeps the app itself framework-agnostic-to-its-host, which is worth more
-here than saving one Dockerfile.
+**Zip-packaged Lambda with Mangum, not a container image.** This repo does
+not use Amazon ECR, ECS, or EKS anywhere — and Lambda's container-image
+support can only ever pull the image from ECR, regardless of where it's
+built or pushed (Docker Hub is not an option for Lambda container images).
+Once ECR was off the table entirely, a container image was never on the
+table either, so the API deploys as a plain zip.
 
-Container image deployment, not a zip: `pyjwt[crypto]` pulls in
-`cryptography`, which ships compiled extensions. Getting a zip-deployed
-Lambda's dependencies built against Amazon Linux's `manylinux` ABI is a
-real but avoidable headache — a container image sidesteps it entirely,
-since the image is built at `docker build` time, not resolved at deploy
-time.
+New `backend/src/codeignite/api/lambda_handler.py`, the only Lambda-specific
+code in the whole application — `api/app.py`'s `create_app()` stays
+completely unaware it exists:
 
-New `backend/Dockerfile.lambda` (the existing `Dockerfile.api` stays for
-local `docker compose` use — this is a second, Lambda-specific image, not a
-replacement):
+```python
+from mangum import Mangum
 
-```dockerfile
-FROM public.ecr.aws/awsguru/aws-lambda-adapter:0.9 AS adapter
-FROM python:3.12-slim
+from codeignite.api.app import app
 
-COPY --from=adapter /lambda-adapter /opt/extensions/lambda-adapter
-ENV PORT=8000
-ENV AWS_LWA_INVOKE_MODE=response_streaming
-# unset — not needed, no streaming responses from this API
-
-WORKDIR /app
-COPY pyproject.toml ./
-COPY src ./src
-RUN pip install --no-cache-dir .
-
-CMD ["uvicorn", "codeignite.api.app:app", "--host", "0.0.0.0", "--port", "8000"]
+handler = Mangum(app, lifespan="off")
 ```
 
-(Exact base image/adapter version pinned for real once this is
-implemented — sketched here to show the shape: no application code
-changes, one new Dockerfile.)
+Mangum translates the Lambda Function URL's HTTP API v2 event into an ASGI
+call against `app` directly, in-process — no server process, no adapter
+binary, no container.
+
+**`pyjwt[crypto]`'s compiled `cryptography` dependency** is the one real
+wrinkle in zip packaging: it ships native extensions that must be built
+against Amazon Linux's `manylinux2014` ABI, not whatever platform builds
+the zip. `backend/scripts/build-lambda-zip.sh` handles this with:
+
+```bash
+pip install \
+  --platform manylinux2014_x86_64 \
+  --python-version 3.12 \
+  --implementation cp \
+  --only-binary=:all: \
+  --target build/lambda \
+  ".[lambda]"
+```
+
+— which resolves Lambda-compatible wheels regardless of what machine runs
+the build (a developer's laptop or a GitHub Actions runner). The `lambda`
+extra in `pyproject.toml` pulls in the base dependencies (pydantic, fastapi,
+boto3, pyjwt[crypto]) plus `mangum`, deliberately excluding the `server`
+extra's `uvicorn` stack — Lambda never runs a server process, so bundling
+uvicorn/uvloop/httptools would be dead weight against the package size
+limit. `infra/modules/run-api/lambda.tf`'s `aws_lambda_function.api` reads
+the built zip directly via `filebase64sha256(var.lambda_package_path)` —
+Terraform does not build it; the script must run first.
 
 ---
 
@@ -156,14 +172,13 @@ File-per-concern, same convention as `static-site` and `run-pipeline`:
 | File | Contents |
 | --- | --- |
 | `versions.tf` | Provider constraints |
-| `variables.tf` | `project_name`, `environment`, `aws_region`, `image_tag` (the ECR tag `deploy.yml` just pushed), `jobs_bucket_name`, `runs_queue_url`, Cognito pool/client IDs, `run_api_policy_arn` (from `run_pipeline`'s output) |
-| `locals.tf` | `name_prefix` |
-| `ecr.tf` | One repository, `codeignite-api`; lifecycle policy expiring untagged images after 7 days |
+| `variables.tf` | `project_name`, `environment`, `aws_region`, `lambda_package_path` (path to the zip built by `backend/scripts/build-lambda-zip.sh`), `jobs_bucket_name`, `runs_queue_url`, Cognito pool/client IDs, `run_api_policy_arn` (from `run_pipeline`'s output) |
+| `locals.tf` | `name_prefix`, name-derived Lambda function/role ARNs |
 | `iam-lambda.tf` | Execution role: `AWSLambdaBasicExecutionRole`-equivalent (CloudWatch Logs, written out explicitly rather than the AWS managed policy, per this repo's no-wildcard-without-comment IAM standard) plus the existing `run-api` managed policy from `run_pipeline` — no new S3/SQS permissions written; that policy was already scoped exactly for this caller |
-| `lambda.tf` | `aws_lambda_function` (package_type `Image`, `image_uri` from `ecr.tf` + `var.image_tag`), environment variables for the five `CODEIGNITE_*` settings, `aws_lambda_function_url` (`authorization_type = "AWS_IAM"`), `aws_lambda_permission` scoping invocation to this specific CloudFront distribution's ARN via the OAC's source ARN condition |
+| `lambda.tf` | `aws_lambda_function` (`runtime = "python3.12"`, `handler = "codeignite.api.lambda_handler.handler"`, `filename`/`source_code_hash` from `var.lambda_package_path`), environment variables for the five `CODEIGNITE_*` settings, `aws_lambda_function_url` (`authorization_type = "AWS_IAM"`), `aws_lambda_permission` scoping invocation to CloudFront's service principal via `source_account` (not `source_arn` — the distribution ARN isn't known until `static-site` creates it, and `static-site` needs this module's outputs first, a genuine cross-module cycle; `source_account` restricts to any distribution in this account, acceptable since there's exactly one) |
 | `oac.tf` | `aws_cloudfront_origin_access_control` (`origin_access_control_origin_type = "lambda"`) |
-| `iam-deploy.tf` | GitHub deploy role gets `lambda:CreateFunction`/`UpdateFunctionCode`/`UpdateFunctionConfiguration`/`CreateFunctionUrlConfig`/`AddPermission` scoped to this function's name-derived ARN (same "build the ARN by name, not from the resource" pattern `run_pipeline/iam-deploy.tf` already uses, for the same chicken-and-egg reason), `ecr:*` scoped to the one new repo, `iam:PassRole` scoped to the Lambda execution role's ARN only |
-| `outputs.tf` | Function URL domain + the OAC ID (both consumed by `static-site`'s new CloudFront behavior), ECR repo URL (consumed by `deploy.yml`) |
+| `iam-deploy.tf` | GitHub deploy role gets `lambda:CreateFunction`/`UpdateFunctionCode`/`UpdateFunctionConfiguration`/`CreateFunctionUrlConfig`/`AddPermission` scoped to this function's name-derived ARN (same "build the ARN by name, not from the resource" pattern `run_pipeline/iam-deploy.tf` already uses, for the same chicken-and-egg reason), `iam:PassRole` scoped to the Lambda execution role's ARN only. No ECR statements — nothing here ever touches a container registry |
+| `outputs.tf` | Function URL domain + the OAC ID (both consumed by `static-site`'s new CloudFront behavior) |
 
 Wiring: `infra/envs/dev/main.tf` gets a new `module "run_api"` block, and
 `module.static_site` gains a variable (`api_origin_domain_name`,
@@ -221,20 +236,23 @@ leaving it implicit.
 **`.github/workflows/deploy.yml`**, gated the same way as `infra`/`frontend`
 today (add a `backend` output to the existing `changes` job):
 
-1. `docker build` (using `Dockerfile.lambda`) + `docker push` to the new
-   ECR repo, tagged with the commit SHA.
+1. `actions/setup-python` (3.12) + `backend/scripts/build-lambda-zip.sh`,
+   producing `backend/dist/api.zip`. No Docker, no registry, no push step —
+   just a local build artifact.
 2. The existing IAM `-target` apply block gets three more targets:
    `module.run_api`'s deploy policy, its attachment, and its propagation
    `time_sleep` — same pattern every other module here already follows.
-3. `terraform apply` (unchanged shape), now passing the SHA tag as
-   `image_tag` so the Lambda function is created/updated against the image
-   just pushed, and creating/updating the CloudFront behaviors.
+3. `terraform apply` (unchanged shape), with `TF_VAR_lambda_package_path`
+   pointing at the zip just built, so the Lambda function is created/updated
+   against it, and creating/updating the CloudFront behaviors.
 
-No SSM, no instance to reach, no restart step — `terraform apply` updating
-`aws_lambda_function.image_uri` *is* the deploy.
+No SSM, no instance to reach, no restart step, no container registry
+anywhere — `terraform apply` updating `aws_lambda_function.source_code_hash`
+*is* the deploy.
 
-**`.github/dependabot.yml`** — add a `docker` ecosystem entry for
-`backend/Dockerfile.lambda`.
+**`.github/dependabot.yml`** — no new ecosystem entry. The `docker`
+ecosystem entry already covers `Dockerfile.api`/`Dockerfile.worker`; there
+is no `Dockerfile.lambda` to add.
 
 ---
 
@@ -262,9 +280,9 @@ No SSM, no instance to reach, no restart step — `terraform apply` updating
 
 | # | Branch | Contents | Gate |
 | --- | --- | --- | --- |
-| 10 | `feat/run-api-lambda-infra` | `infra/modules/run-api/` (ECR, Lambda, Function URL, Lambda-type OAC, IAM) + dev wiring + flip `attach_runtime_policies_to_local_dev_role` | `plan` shows only adds; Trivy clean |
+| 10 | `feat/run-api-lambda-infra` | `infra/modules/run-api/` (zip-packaged Lambda, Function URL, Lambda-type OAC, IAM) + dev wiring + flip `attach_runtime_policies_to_local_dev_role` | `plan` shows only adds; Trivy clean |
 | 11 | `feat/hosted-api-cloudfront` | `static-site`'s new `/runs*`/`/healthz` CloudFront behaviors + `api_origin_domain_name`/`api_origin_access_control_id` variables | `plan` shows only adds |
-| 12 | `feat/deploy-api-lambda` | `backend/Dockerfile.lambda`; `deploy.yml`: ECR build/push, `backend` change detection; `dependabot.yml` docker ecosystem | CI green; manual deploy verified against dev |
+| 12 | `feat/deploy-api-lambda` | `backend/src/codeignite/api/lambda_handler.py`, `backend/scripts/build-lambda-zip.sh`; `deploy.yml`: build-zip step, `backend` change detection | CI green; manual deploy verified against dev |
 | 13 | `docs/hosted-api-live` | Set `vars.API_BASE_URL` (repo variable) to the CloudFront origin; document running the worker against dev in `backend/README.md`; update `CLAUDE.md` | end to end, with local worker running |
 
 PR 13 stays a config-only PR, same reasoning as the earlier draft of this
@@ -278,13 +296,13 @@ the playground on, worth its own reviewable diff.
 | Item | Estimate |
 | --- | --- |
 | Lambda (per-request billing, dev traffic) | Low single dollars, likely within the always-free tier (1M requests + 400,000 GB-seconds/month) |
-| ECR storage | <$1 (lifecycle policy expires untagged images) |
 | Function URL | No separate charge — billed as Lambda invocations |
 | **Total** | **A few dollars a month, likely near $0** |
 
-No EC2, no ALB, no NAT gateway, no VPC — this is the actual cost benefit of
-keeping the worker off AWS entirely: the only thing running continuously is
-SQS/S3, which were already there from PR 3.
+No EC2, no ALB, no NAT gateway, no VPC, no container registry — this is the
+actual cost benefit of keeping the worker off AWS entirely and the API
+zip-packaged: the only thing running continuously is SQS/S3, which were
+already there from PR 3.
 
 ---
 

@@ -1,21 +1,8 @@
-# Hosted API image — same uvicorn app as Dockerfile.api, run through the
-# AWS Lambda Web Adapter so api/app.py never knows it's on Lambda. Used by
-# .github/workflows/deploy.yml (not docker compose). See
-# docs/code-playground-hosted-api-plan.md §3.
-FROM public.ecr.aws/awsguru/aws-lambda-adapter:0.9 AS adapter
-FROM python:3.12-slim
-
-COPY --from=adapter /lambda-adapter /opt/extensions/lambda-adapter
-
-# PORT is also set on the Lambda function env in infra/modules/run-api —
-# keeping it here means a local `docker run` of this image still works.
-ENV PORT=8000
-
-WORKDIR /app
-
-COPY pyproject.toml ./
-COPY src ./src
-
-RUN pip install --no-cache-dir .
-
-CMD ["uvicorn", "codeignite.api.app:app", "--host", "0.0.0.0", "--port", "8000"]
+# Unused — safe to `git rm backend/Dockerfile.lambda` by hand (this sandbox
+# could not delete it directly; see infra/modules/run-api/ecr.tf).
+#
+# The hosted API is a zip-packaged Lambda (backend/scripts/build-lambda-zip.sh,
+# codeignite.api.lambda_handler.handler), not a container image — this repo
+# does not use ECR, ECS, or EKS anywhere, and Lambda's container image
+# support only pulls from ECR regardless of where the image is built or
+# pushed. See docs/code-playground-hosted-api-plan.md §0 and §3.

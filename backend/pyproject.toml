@@ -7,7 +7,6 @@ dependencies = [
   "pydantic>=2.9",
   "pydantic-settings>=2.6",
   "fastapi>=0.115",
-  "uvicorn[standard]>=0.34",
   "boto3>=1.34",
   # [crypto] pulls in `cryptography` for RS256 verification of Cognito's
   # JWKS-signed access tokens — see api/auth.py.
@@ -15,6 +14,23 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+# Split out of the base dependencies because the hosted Lambda deployment
+# (api/lambda_handler.py) never runs a server process — Mangum calls the
+# ASGI app in-process, so bundling uvicorn/uvloop/httptools into the Lambda
+# zip would be dead weight against Lambda's package size limits. Anything
+# that runs the API as a long-lived HTTP server (Dockerfile.api, `uvicorn
+# codeignite.api.app:app --reload` for local dev) installs this extra.
+server = [
+  "uvicorn[standard]>=0.34",
+]
+
+# The hosted API's entrypoint — see api/lambda_handler.py and
+# docs/code-playground-hosted-api-plan.md §3. Not needed for local
+# docker compose or CI; only backend/scripts/build-lambda-zip.sh installs it.
+lambda = [
+  "mangum>=0.19",
+]
+
 dev = [
   "ruff>=0.8",
   "mypy>=1.13",

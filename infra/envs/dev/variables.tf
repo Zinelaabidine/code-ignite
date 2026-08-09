@@ -61,11 +61,4 @@ variable "enable_waf" {
   default     = false
 }
 
-# ─── Code playground API (module.run_api) ──────────────────────────────────────
-
-variable "backend_image_tag" {
-  description = "Tag of the backend/Dockerfile.lambda image in run_api's ECR repository to deploy — set by deploy.yml (TF_VAR_backend_image_tag) to the commit SHA it just built and pushed. See docs/code-playground-hosted-api-plan.md §6."
-  type        = string
-  default     = "unset"
-}
 

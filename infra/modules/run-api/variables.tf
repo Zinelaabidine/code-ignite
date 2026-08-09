@@ -1,7 +1,7 @@
 # ─── Identity and naming ──────────────────────────────────────────────────────
 
 variable "aws_region" {
-  description = "AWS region for every resource in this module. Must match the region configured on the aws.this provider — used to build regional ARNs (Lambda, ECR) in the deploy IAM policy before those resources exist, and to derive the Function URL's own domain."
+  description = "AWS region for every resource in this module. Must match the region configured on the aws.this provider — used to build regional ARNs (Lambda, CloudWatch Logs) in the deploy IAM policy before those resources exist, and to derive the Function URL's own domain."
   type        = string
 }
 
@@ -26,7 +26,7 @@ variable "environment" {
 }
 
 variable "attach_deploy_policies_to_local_dev_role" {
-  description = "Attach this module's deploy-time managed policy (create/manage the ECR repository, Lambda function, its execution role, and the Lambda-type OAC) to the shared local-dev IAM role, and look that role up. Same account-global-role caveat as every other module's copy of this flag: enable in exactly one environment, and only if you actually run `terraform apply` for this module locally. Requires local_dev_iam_users to be non-empty in infra/bootstrap."
+  description = "Attach this module's deploy-time managed policy (create/manage the Lambda function, its execution role, and the Lambda-type OAC) to the shared local-dev IAM role, and look that role up. Same account-global-role caveat as every other module's copy of this flag: enable in exactly one environment, and only if you actually run `terraform apply` for this module locally. Requires local_dev_iam_users to be non-empty in infra/bootstrap."
   type        = bool
   default     = false
 }
@@ -68,15 +68,10 @@ variable "run_api_policy_arn" {
 
 # ─── Deployment ────────────────────────────────────────────────────────────────
 
-variable "image_tag" {
-  description = "Tag of the backend/Dockerfile.lambda image in this module's ECR repository that the Lambda function should run — set by deploy.yml to the commit SHA it just built and pushed. Terraform does not build or push images itself; the image referenced by this tag must already exist in the repository before apply runs, or CreateFunction/UpdateFunctionCode fails."
+variable "lambda_package_path" {
+  description = "Path to the zip file built by backend/scripts/build-lambda-zip.sh (codeignite.api.lambda_handler.handler). Terraform does not build this file itself — filebase64sha256() reads it directly, so a missing path fails at plan time with a clear \"no such file\" error rather than a deploy-time AWS API error. Run the build script before every apply where backend source or dependencies changed; a stale zip deploys stale code, not a build failure."
   type        = string
-  default     = "unset"
-
-  validation {
-    condition     = length(var.image_tag) > 0
-    error_message = "image_tag must not be empty."
-  }
+  default     = "../../../backend/dist/api.zip"
 }
 
 variable "lambda_memory_mb" {
@@ -91,7 +86,7 @@ variable "lambda_memory_mb" {
 }
 
 variable "lambda_timeout_seconds" {
-  description = "Lambda invocation timeout. Generous relative to the API's actual work (an S3 put/get and an SQS send, typically well under a second) to absorb cold starts from the Lambda Web Adapter and cryptography's import time, not because the API is expected to run long."
+  description = "Lambda invocation timeout. Generous relative to the API's actual work (an S3 put/get and an SQS send, typically well under a second) to absorb cold-start time — mangum's import and cryptography's native module load — not because the API is expected to run long."
   type        = number
   default     = 15
 

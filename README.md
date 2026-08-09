@@ -184,15 +184,17 @@ terraform apply                                  # never -auto-approve in prod
 
 `scripts/deploy-local.sh` runs the same job as `.github/workflows/deploy.yml`
 end to end, from your own machine: ci-equivalent checks, an IaC/secret scan
-plus `npm audit`, `terraform apply` (with the same destructive-plan guard),
-then the frontend build, S3 sync, and CloudFront invalidation. It uses
-whatever AWS credentials `aws` already resolves in your shell (profile, env
-vars, SSO, or an assumed role via `--assume-role`).
+plus `npm audit`, targeted IAM → ECR → Lambda image push → `terraform apply`
+(with the same destructive-plan guard), then the frontend build, S3 sync, and
+CloudFront invalidation. It uses whatever AWS credentials `aws` already
+resolves in your shell (profile, env vars, SSO, or an assumed role via
+`--assume-role`).
 
 ```bash
 ./scripts/deploy-local.sh dev                       # full deploy
 ./scripts/deploy-local.sh prod --frontend-only       # skip terraform
 ./scripts/deploy-local.sh staging --profile my-sso   # explicit AWS profile
+./scripts/deploy-local.sh dev --skip-backend-image   # infra without rebuilding Lambda
 ./scripts/deploy-local.sh dev --help                 # all options
 ```
 

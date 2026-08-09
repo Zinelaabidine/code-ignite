@@ -42,9 +42,10 @@ updates:
       minor-and-patch:
         update-types: [minor, patch]
 
-  # One directory entry covers every Dockerfile in it — Dockerfile.api,
-  # Dockerfile.worker, and Dockerfile.lambda all get scanned, including the
-  # FROM public.ecr.aws/awsguru/aws-lambda-adapter pin in Dockerfile.lambda.
+  # Covers Dockerfile.api and Dockerfile.worker — the two Dockerfiles this
+  # repo still builds. The hosted API is a zip-packaged Lambda, not a
+  # container image (see docs/code-playground-hosted-api-plan.md §0 and §3),
+  # so there is no Dockerfile.lambda to scan here anymore.
   - package-ecosystem: docker
     directory: /backend
     schedule:

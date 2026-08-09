@@ -30,7 +30,7 @@ See `.cursor/rules/backend.mdc` for AI coding conventions in this folder.
 cd backend
 python3.12 -m venv .venv
 source .venv/bin/activate
-pip install -e ".[dev]"
+pip install -e ".[dev,server]"
 cp .env.example .env
 ```
 
@@ -112,9 +112,9 @@ aws sso login   # or however you assume the local-dev role — needs
 cd backend
 cp .env.example .env
 # fill CODEIGNITE_JOBS_BUCKET / CODEIGNITE_RUNS_QUEUE_URL from
-# `terraform output run_api_ecr_repository_url` 's sibling outputs
-# jobs_bucket_name / runs_queue_url in infra/envs/dev — not a scratch
-# local setup, the real dev queue and bucket
+# `terraform output jobs_bucket_name` / `terraform output runs_queue_url`
+# in infra/envs/dev — not a scratch local setup, the real dev queue and
+# bucket
 
 docker compose up worker   # or: python -m codeignite.worker
 ```
@@ -146,7 +146,8 @@ Docker.
 | --- | --- |
 | `pyproject.toml` | Dependencies, ruff, mypy, pytest config |
 | `docker-compose.yml`, `Dockerfile.api`, `Dockerfile.worker` | Local stage 2 topology — see the comments in each for the trust-boundary reasoning |
-| `Dockerfile.lambda` | The hosted API's image — `api/app.py` unmodified, run through the AWS Lambda Web Adapter. Built and pushed by `.github/workflows/deploy.yml`, not used by `docker compose`. See `docs/code-playground-hosted-api-plan.md` §3 |
+| `src/codeignite/api/lambda_handler.py` | The hosted API's entrypoint — `api/app.py` unmodified, wrapped by Mangum. Zip-packaged, not a container image; see `docs/code-playground-hosted-api-plan.md` §3 |
+| `scripts/build-lambda-zip.sh` | Builds `dist/api.zip` for `infra/modules/run-api`'s Lambda function. Run before `terraform apply` whenever backend source or dependencies change; also run by `.github/workflows/deploy.yml` |
 | `scripts/pull-images.sh` | Pre-pulls every image in `LANGUAGES` so a job's timeout never pays for a cold image pull |
 | `src/codeignite/config.py` | Environment contract (`pydantic-settings`), mirrors `frontend/lib/env.ts` |
 | `src/codeignite/domain/languages.py` | `LANGUAGES` registry — one entry per supported language |

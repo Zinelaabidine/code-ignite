@@ -43,11 +43,6 @@ output "jobs_bucket_name" {
   value       = module.run_pipeline.jobs_bucket_name
 }
 
-output "run_api_ecr_repository_url" {
-  description = "ECR repository URL deploy.yml pushes the backend/Dockerfile.lambda image to."
-  value       = module.run_api.ecr_repository_url
-}
-
 output "run_api_function_url" {
   description = "The run-api Lambda's own Function URL. Not the public entry point — CloudFront (site_url + /runs or /healthz) is; requesting this URL directly is expected to fail with an IAM auth error, since only CloudFront's OAC-signed requests are permitted (see infra/modules/run-api/lambda.tf)."
   value       = "https://${module.run_api.function_url_domain_name}/"

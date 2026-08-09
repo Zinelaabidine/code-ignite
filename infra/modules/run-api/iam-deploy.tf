@@ -1,8 +1,8 @@
 # ─────────────────────────────────────────────────────────────────────────────
-# Deploy-time permissions — create/manage the ECR repository, the Lambda
-# function and its Function URL, the Lambda execution role and its own
-# policies (iam-lambda.tf), and the Lambda-type OAC. Attached to the GitHub
-# deploy role always, and to the local-dev role when
+# Deploy-time permissions — create/manage the Lambda function and its
+# Function URL, the Lambda execution role and its own policies
+# (iam-lambda.tf), and the Lambda-type OAC. Attached to the GitHub deploy
+# role always, and to the local-dev role when
 # attach_deploy_policies_to_local_dev_role is true.
 #
 # This is a separate managed policy from static-site's and run-pipeline's —
@@ -15,62 +15,17 @@
 # needed beyond what an already-deployed environment already has.
 #
 # Same chicken-and-egg as every other module here: the permissions THIS
-# policy grants (ecr:CreateRepository, lambda:CreateFunction, ...) are not
-# available to the deploy role until this policy is attached and has
-# propagated — deploy.yml applies this module's IAM resources with -target
-# before anything that needs them, same as static_site and run_pipeline.
+# policy grants (lambda:CreateFunction, ...) are not available to the deploy
+# role until this policy is attached and has propagated — deploy.yml applies
+# this module's IAM resources with -target before anything that needs them,
+# same as static_site and run_pipeline.
+#
+# No ECR statements here — the API deploys as a zip-packaged Lambda built by
+# backend/scripts/build-lambda-zip.sh, not a container image. See
+# docs/code-playground-hosted-api-plan.md §0 and §3.
 # ─────────────────────────────────────────────────────────────────────────────
 
 data "aws_iam_policy_document" "github_deploy_run_api_policy" {
-
-  # ─── ECR ───────────────────────────────────────────────────────────────────
-
-  # GetAuthorizationToken has no resource-level permission scope — AWS
-  # requires "*" for this action regardless of which repository is targeted.
-  statement {
-    sid       = "ECRAuthGlobal"
-    effect    = "Allow"
-    actions   = ["ecr:GetAuthorizationToken"]
-    resources = ["*"]
-  }
-
-  statement {
-    sid    = "ECRRepositoryManage"
-    effect = "Allow"
-    actions = [
-      "ecr:CreateRepository",
-      "ecr:DeleteRepository",
-      "ecr:DescribeRepositories",
-      "ecr:GetRepositoryPolicy",
-      "ecr:SetRepositoryPolicy",
-      "ecr:DeleteRepositoryPolicy",
-      "ecr:PutLifecyclePolicy",
-      "ecr:GetLifecyclePolicy",
-      "ecr:DeleteLifecyclePolicy",
-      "ecr:PutImageScanningConfiguration",
-      "ecr:TagResource",
-      "ecr:UntagResource",
-      "ecr:ListTagsForResource",
-    ]
-    resources = [local.ecr_repository_arn]
-  }
-
-  # What `docker push` actually calls, scoped to this one repository — the
-  # image build/push step in deploy.yml uses these, not the deploy role's
-  # broader repository-management rights above.
-  statement {
-    sid    = "ECRImagePush"
-    effect = "Allow"
-    actions = [
-      "ecr:BatchCheckLayerAvailability",
-      "ecr:InitiateLayerUpload",
-      "ecr:UploadLayerPart",
-      "ecr:CompleteLayerUpload",
-      "ecr:PutImage",
-      "ecr:BatchGetImage",
-    ]
-    resources = [local.ecr_repository_arn]
-  }
 
   # ─── Lambda ────────────────────────────────────────────────────────────────
 
@@ -218,7 +173,7 @@ resource "aws_iam_policy" "github_deploy_run_api_policy" {
   provider = aws.this
 
   name        = "${local.name_prefix}-github-deploy-run-api-policy"
-  description = "ECR repository, Lambda function/Function URL, Lambda execution role, and Lambda-type OAC management for the GitHub and local-dev roles"
+  description = "Lambda function/Function URL, Lambda execution role, and Lambda-type OAC management for the GitHub and local-dev roles"
   policy      = data.aws_iam_policy_document.github_deploy_run_api_policy.json
 
   tags = {
