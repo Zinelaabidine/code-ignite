@@ -46,12 +46,46 @@ def _token(**overrides: object) -> str:
 
 
 def test_valid_access_token_returns_its_sub() -> None:
+    """The fallback header, used by local dev and anything not behind CloudFront."""
     assert auth.get_current_sub(authorization=f"Bearer {_token()}") == "user-123"
+
+
+def test_valid_access_token_in_the_codeignite_header_returns_its_sub() -> None:
+    """The header the deployed frontend actually sends.
+
+    CloudFront's OAC overwrites `Authorization` with its own SigV4 signature
+    (see auth.py's module docstring), so this is the only header a hosted
+    request can carry a Cognito token in.
+    """
+    assert auth.get_current_sub(x_codeignite_authorization=f"Bearer {_token()}") == "user-123"
+
+
+def test_codeignite_header_wins_over_an_oac_signature_in_authorization() -> None:
+    """Reproduces the hosted request shape exactly: a real token in the custom
+    header, CloudFront's SigV4 signature in `Authorization`. Preferring
+    `Authorization` here would 401 a correctly-authenticated user.
+    """
+    assert (
+        auth.get_current_sub(
+            x_codeignite_authorization=f"Bearer {_token()}",
+            authorization="AWS4-HMAC-SHA256 Credential=AKIA/20260809/us-east-1/lambda/aws4_request",
+        )
+        == "user-123"
+    )
 
 
 def test_missing_header_is_rejected() -> None:
     with pytest.raises(HTTPException) as exc_info:
         auth.get_current_sub(authorization=None)
+    assert exc_info.value.status_code == 401
+
+
+def test_oac_signature_alone_is_rejected() -> None:
+    """No custom header at all — what every request looked like before the fix."""
+    with pytest.raises(HTTPException) as exc_info:
+        auth.get_current_sub(
+            authorization="AWS4-HMAC-SHA256 Credential=AKIA/20260809/us-east-1/lambda/aws4_request"
+        )
     assert exc_info.value.status_code == 401
 
 

@@ -194,6 +194,54 @@ def test_submit_run_with_a_malformed_bearer_token_is_rejected(
     assert response.status_code == 401
 
 
+def test_submit_run_reads_the_token_from_the_codeignite_header(
+    fake_runs_gateway: FakeRunsGateway,
+) -> None:
+    """Asserts FastAPI binds `x_codeignite_authorization` to the wire name
+    `X-Codeignite-Authorization`, which the deployed frontend depends on.
+
+    A malformed token proves the header was *read*: with no `Authorization`
+    header present, reaching JWT verification at all can only have happened
+    via the custom one. If the binding broke, the request would still 401 —
+    so `test_auth.py` covers the accept path, and this covers the wiring.
+    """
+    client = _unauthenticated_client(fake_runs_gateway)
+
+    response = client.post(
+        "/runs",
+        json={"language": "python", "code": "print(1)"},
+        headers={"X-Codeignite-Authorization": "Bearer not-a-jwt"},
+    )
+
+    assert response.status_code == 401
+    assert fake_runs_gateway.inputs == {}
+
+
+def test_cors_preflight_allows_the_headers_the_frontend_sends() -> None:
+    """Guards local development specifically.
+
+    The deployed frontend is same-origin behind CloudFront and never sends a
+    preflight, so an omission here is invisible in dev/staging/prod and only
+    breaks `docker compose up` + `npm run dev` (localhost:3000 ->
+    localhost:8000 is cross-origin).
+    """
+    client = TestClient(create_app())
+
+    for header in ("x-codeignite-authorization", "x-amz-content-sha256"):
+        response = client.options(
+            "/runs",
+            headers={
+                "Origin": "http://localhost:3000",
+                "Access-Control-Request-Method": "POST",
+                "Access-Control-Request-Headers": header,
+            },
+        )
+
+        assert response.status_code == 200, header
+        allowed = response.headers["access-control-allow-headers"].lower()
+        assert header in allowed
+
+
 def test_submit_run_is_rejected_once_the_rate_limit_bucket_is_empty(
     fake_runs_gateway: FakeRunsGateway,
 ) -> None:

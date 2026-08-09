@@ -3,8 +3,22 @@
 
 Verifies the *access* token, not the ID token: the ID token is about who the
 user is, for the UI; the access token is the API credential and carries
-`client_id` and `scope`. The frontend sends
-`Authorization: Bearer <accessToken>`.
+`client_id` and `scope`.
+
+The token arrives in `X-Codeignite-Authorization`, NOT `Authorization` —
+`Authorization` is unusable end-to-end in the hosted deployment. CloudFront's
+Lambda-function-URL OAC (infra/modules/run-api/oac.tf) signs every origin
+request with SigV4 and puts that signature in `Authorization`, discarding
+whatever the viewer sent. A valid, unexpired Cognito access token presented
+that way never reaches this module at all, and every request 401s. The
+documented alternative — OAC `signing_behavior = "no-override"` — only passes
+the viewer's header through by *not* signing the request, which the function
+URL's `authorization_type = "AWS_IAM"` then rejects; keeping the token in its
+own header preserves both layers instead of trading one for the other.
+@see https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/private-content-restricting-access-to-lambda.html
+
+`Authorization` is still accepted as a fallback for callers with no CloudFront
+in front — `docker compose up`, `uvicorn` local dev, curl, and the tests.
 
 `PyJWKClient` keeps its own in-process cache of the JWKS keyed by `kid`, so
 constructing it once at module import time (rather than per request) is what
@@ -48,15 +62,33 @@ def _decode(token: str) -> dict[str, Any]:
     return claims
 
 
-def get_current_sub(authorization: str | None = Header(default=None)) -> str:
+def get_current_sub(
+    x_codeignite_authorization: str | None = Header(default=None),
+    authorization: str | None = Header(default=None),
+) -> str:
     """FastAPI dependency: verifies the bearer token and returns its `sub`.
+
+    Reads `X-Codeignite-Authorization` first and falls back to `Authorization`
+    — see the module docstring for why the hosted deployment cannot use
+    `Authorization`. The fallback is deliberately *second*: behind CloudFront,
+    `Authorization` always holds an OAC SigV4 signature, so preferring it
+    would mean parsing `AWS4-HMAC-SHA256 ...` as a bearer token on every
+    request and rejecting a token that was sent correctly.
 
     401 on any failure, with no detail about which check failed — missing
     header, expired token, wrong pool, and an ID token presented instead of
     an access token all look identical from the outside. Distinguishing them
     in the response would hand an attacker a probe for free.
     """
-    scheme, token = get_authorization_scheme_param(authorization or "")
+    # `x or y` is not enough here. Called directly rather than resolved by
+    # FastAPI — which is how the unit tests exercise it — an argument the
+    # caller omitted still holds the `Header(...)` sentinel object, and that
+    # object is truthy, so it would shadow a header the caller did pass.
+    # Only a real string counts as a supplied header.
+    supplied = (x_codeignite_authorization, authorization)
+    header = next((value for value in supplied if isinstance(value, str)), None)
+
+    scheme, token = get_authorization_scheme_param(header or "")
     if scheme.lower() != "bearer" or not token:
         raise _unauthenticated()
 

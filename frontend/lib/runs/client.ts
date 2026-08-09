@@ -67,6 +67,18 @@ async function sha256Hex(body: string): Promise<string> {
     .join("");
 }
 
+/**
+ * The Cognito access token travels in this header, not `Authorization`.
+ *
+ * CloudFront's Lambda-function-URL OAC signs every origin request with SigV4
+ * and writes that signature into `Authorization`, discarding whatever the
+ * viewer sent — so a perfectly valid token sent the conventional way never
+ * reaches the API and every request 401s. Must stay in sync with
+ * `backend/src/codeignite/api/auth.py`.
+ * @see https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/private-content-restricting-access-to-lambda.html
+ */
+const AUTH_HEADER = "X-Codeignite-Authorization";
+
 async function doFetch(url: string, init: RequestInit): Promise<Response> {
   try {
     return await fetch(url, init);
@@ -91,7 +103,7 @@ export async function submitRun(
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      Authorization: `Bearer ${token}`,
+      [AUTH_HEADER]: `Bearer ${token}`,
       "x-amz-content-sha256": payloadHash,
     },
     body,
@@ -114,7 +126,7 @@ export async function getRun(
   signal: AbortSignal,
 ): Promise<RunOutcome> {
   const response = await doFetch(`${baseUrl}/runs/${jobId}`, {
-    headers: { Authorization: `Bearer ${token}` },
+    headers: { [AUTH_HEADER]: `Bearer ${token}` },
     signal,
   });
   // 202 is the API's explicit "not finished yet" signal — checked by status
