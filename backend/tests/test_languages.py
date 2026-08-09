@@ -9,6 +9,10 @@ def test_python_is_registered() -> None:
     assert "python" in LANGUAGES
 
 
+def test_node_is_registered() -> None:
+    assert "node" in LANGUAGES
+
+
 def test_every_entry_has_a_non_empty_image_command_and_extension() -> None:
     for name, language in LANGUAGES.items():
         assert isinstance(language, Language)
@@ -20,6 +24,17 @@ def test_every_entry_has_a_non_empty_image_command_and_extension() -> None:
         assert language.extension, f"{name}: extension must not be empty"
         assert not language.extension.startswith("."), (
             f"{name}: extension should be bare (e.g. 'py'), not '.py'"
+        )
+
+
+def test_every_image_is_pinned_by_digest_not_a_moving_tag() -> None:
+    # A bare tag (e.g. "node:22-alpine") drifts underneath us as Docker Hub
+    # repoints it — see the module docstring. `@sha256:` is what makes the
+    # image immutable; a plain tag with no digest fails this loudly instead
+    # of silently reintroducing drift on the next entry someone adds.
+    for name, language in LANGUAGES.items():
+        assert "@sha256:" in language.image, (
+            f"{name}: image must be pinned by digest (tag@sha256:...), got {language.image!r}"
         )
 
 

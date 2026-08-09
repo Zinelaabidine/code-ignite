@@ -158,3 +158,31 @@ class TestLocalDockerRunnerLive:
         )
         result = LocalDockerRunner().run(code=code, language="python", timeout=8)
         assert result.stdout.strip() == "blocked"
+
+
+# One hello-world snippet per registry entry, in that language's own syntax.
+# A language landing in LANGUAGES without a line here means it also lands in
+# `TestHelloWorldPerLanguage` with no case to run — the parametrize below
+# reads its ids from LANGUAGES itself, so a missing snippet is a loud
+# `KeyError` at collection time rather than a silently-skipped language.
+HELLO_WORLD_BY_LANGUAGE = {
+    "python": "print('hi')",
+    "node": "console.log('hi')",
+}
+
+
+@pytest.mark.docker
+class TestHelloWorldPerLanguage:
+    """Stage 6's "add a parametrised @pytest.mark.docker test asserting
+    hello-world per language" — every entry in the registry gets pulled,
+    started, and asserted against in one pass, so adding a language without
+    a passing hello-world here is caught immediately rather than discovered
+    the first time someone actually picks it in the UI."""
+
+    @pytest.mark.parametrize("language", sorted(LANGUAGES))
+    def test_hello_world(self, language: str) -> None:
+        code = HELLO_WORLD_BY_LANGUAGE[language]
+        result = LocalDockerRunner().run(code=code, language=language, timeout=8)
+        assert result.status == "ok"
+        assert result.stdout == "hi\n"
+        assert result.exit_code == 0

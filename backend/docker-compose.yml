@@ -9,6 +9,11 @@
 # sso login` / `aws sts assume-role`, per your normal workflow) *before*
 # `docker compose up` — the containers read the cached session from the
 # mounted ~/.aws, they don't perform the MFA challenge themselves.
+#
+# Run `scripts/pull-images.sh` once beforehand (and again after adding a
+# language) to pre-pull every sandbox image in LANGUAGES — otherwise the
+# first run of a language pays for its own image pull inside the job's
+# 8s timeout.
 
 services:
   api:

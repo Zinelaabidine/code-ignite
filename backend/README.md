@@ -39,6 +39,16 @@ comment in `.env.example`) — `codeignite.config.Settings` throws at startup
 if any is missing. The two Cognito ones are the same pool and app client the
 frontend already uses (`frontend/.env.example`).
 
+Pre-pull the sandbox images so the first run of a language isn't a cold
+image download charged against that job's own timeout:
+
+```bash
+scripts/pull-images.sh
+```
+
+Re-run it whenever `src/codeignite/domain/languages.py` gains a new entry or
+re-pins an existing one.
+
 ## Commands
 
 ```bash
@@ -107,6 +117,7 @@ Docker.
 | --- | --- |
 | `pyproject.toml` | Dependencies, ruff, mypy, pytest config |
 | `docker-compose.yml`, `Dockerfile.api`, `Dockerfile.worker` | Local stage 2 topology — see the comments in each for the trust-boundary reasoning |
+| `scripts/pull-images.sh` | Pre-pulls every image in `LANGUAGES` so a job's timeout never pays for a cold image pull |
 | `src/codeignite/config.py` | Environment contract (`pydantic-settings`), mirrors `frontend/lib/env.ts` |
 | `src/codeignite/domain/languages.py` | `LANGUAGES` registry — one entry per supported language |
 | `src/codeignite/domain/models.py` | `JobInput` — the `input.json` shape |
