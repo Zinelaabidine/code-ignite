@@ -89,17 +89,17 @@ jobs:
     name: backend
     runs-on: self-hosted
     timeout-minutes: 15
-    # setup-python installs into RUNNER_TOOL_CACHE. On this self-hosted macOS
-    # runner the default (/Users/runner/hostedtoolcache) is not writable —
-    # use the job temp dir instead.
-    env:
-      RUNNER_TOOL_CACHE: ${{ runner.temp }}/hostedtoolcache
     steps:
       - name: Checkout code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
+      # setup-python installs into RUNNER_TOOL_CACHE. On this self-hosted macOS
+      # runner the default (/Users/runner/hostedtoolcache) is not writable —
+      # use the job temp dir instead. runner.* is only valid at step scope.
       - name: Set up Python
         uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        env:
+          RUNNER_TOOL_CACHE: ${{ runner.temp }}/hostedtoolcache
         with:
           python-version: ${{ env.PYTHON_VERSION }}
           cache: pip
@@ -182,7 +182,7 @@ jobs:
     # Temporarily disabled — Trivy AWS-0067 on run-api's CloudFront Lambda
     # permission (source_account without source_arn; see lambda.tf comment)
     # was blocking deploy. Re-enable once that finding is suppressed or fixed.
-    if: false
+    if: ${{ false }}
     runs-on: self-hosted
     timeout-minutes: 15
     steps:
