@@ -345,9 +345,9 @@ jobs:
           # -refresh=false: these targets only render IAM policy JSON from HCL,
           # so a full state refresh buys nothing here.
           #
-          # static_site is in every env. run_pipeline / run_api are only wired
-          # into dev today — targeting them on staging/prod fails plan with
-          # "module not declared". Detect from this env's main.tf.
+          # static_site is in every env. run_pipeline / run_api are wired into
+          # envs that declare them (dev + prod today); targeting them where
+          # absent fails plan with "module not declared". Detect from main.tf.
           targets=(
             -target=module.static_site.aws_iam_policy.github_deploy_core_policy
             -target=module.static_site.aws_iam_role_policy_attachment.github_deploy_core

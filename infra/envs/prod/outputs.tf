@@ -32,3 +32,18 @@ output "cognito_client_id" {
   description = "Cognito App Client ID — built into the frontend as NEXT_PUBLIC_CLIENT_ID."
   value       = module.static_site.cognito_client_id
 }
+
+output "runs_queue_url" {
+  description = "SQS queue URL — CODEIGNITE_RUNS_QUEUE_URL when the local worker drains prod."
+  value       = module.run_pipeline.runs_queue_url
+}
+
+output "jobs_bucket_name" {
+  description = "S3 bucket holding job input/result objects — CODEIGNITE_JOBS_BUCKET when the local worker drains prod."
+  value       = module.run_pipeline.jobs_bucket_name
+}
+
+output "run_api_function_url" {
+  description = "The run-api Lambda's own Function URL. Not the public entry point — CloudFront (site_url + /runs or /healthz) is; requesting this URL directly is expected to fail with an IAM auth error."
+  value       = "https://${module.run_api.function_url_domain_name}/"
+}
