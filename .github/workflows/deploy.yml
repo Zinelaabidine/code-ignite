@@ -288,6 +288,20 @@ jobs:
           terraform_version: ${{ env.TF_VERSION }}
           terraform_wrapper: false
 
+      # common.auto.tfvars symlinks → gitignored infra/common.tfvars. Without
+      # this file terraform init fails with "Failed to read variables file".
+      - name: Materialize common.tfvars
+        run: |
+          set -euo pipefail
+          cat > infra/common.tfvars <<EOF
+          aws_region              = "${{ vars.AWS_REGION || 'us-east-1' }}"
+          project_name            = "${{ vars.PROJECT_NAME }}"
+          github_owner            = "${{ github.repository_owner }}"
+          github_repo             = "${{ github.event.repository.name }}"
+          hosted_zone_name        = "${{ vars.HOSTED_ZONE_NAME }}"
+          certificate_domain_name = "${{ vars.CERTIFICATE_DOMAIN_NAME }}"
+          EOF
+
       # Bucket name: {PROJECT_NAME}-terraform-state-{AWS_ACCOUNT_ID} — same as Terraform locals.
       - name: Terraform Init
         working-directory: ${{ steps.set-env.outputs.tf_dir }}
