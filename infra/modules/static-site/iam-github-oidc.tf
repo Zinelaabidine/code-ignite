@@ -356,8 +356,8 @@ data "aws_iam_policy_document" "github_deploy_cdn_policy" {
     resources = ["*"]
   }
 
-  # Cache policies and response-headers policies are account-level CloudFront
-  # resources that AWS does not expose for resource-level authorisation.
+  # Cache, origin-request, and response-headers policies are account-level
+  # CloudFront resources that AWS does not expose for resource-level authorisation.
   statement {
     sid    = "CloudFrontPolicyManage"
     effect = "Allow"
@@ -365,6 +365,9 @@ data "aws_iam_policy_document" "github_deploy_cdn_policy" {
       "cloudfront:GetCachePolicy",
       "cloudfront:GetCachePolicyConfig",
       "cloudfront:ListCachePolicies",
+      "cloudfront:GetOriginRequestPolicy",
+      "cloudfront:GetOriginRequestPolicyConfig",
+      "cloudfront:ListOriginRequestPolicies",
       "cloudfront:CreateResponseHeadersPolicy",
       "cloudfront:GetResponseHeadersPolicy",
       "cloudfront:GetResponseHeadersPolicyConfig",
