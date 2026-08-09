@@ -119,9 +119,10 @@ def test_a_poisoned_message_is_left_on_the_queue_for_redelivery() -> None:
     handle_message(runner, message)
 
     assert runner.calls == []
-    # Never deleted — still on the queue (moto doesn't hold the visibility
-    # timeout the same way a real receive would, so it's immediately
-    # receivable again here).
+    # Never deleted — still on the queue. A receive puts the message in-flight
+    # (visibility timeout); expire that window so we can observe it again.
+    # Older moto returned in-flight messages immediately; current moto does not.
+    queue.extend_visibility(message.receipt_handle, visibility_timeout=0)
     remaining = queue.receive_jobs(max_messages=1, wait_time_seconds=0)
     assert len(remaining) == 1
 
