@@ -195,7 +195,6 @@ jobs:
         env:
           AWS_ACCOUNT_ID: ${{ vars.AWS_ACCOUNT_ID }}
           PROJECT_NAME: ${{ vars.PROJECT_NAME }}
-          AWS_ACCOUNT_ID: ${{ vars.AWS_ACCOUNT_ID }}
           HOSTED_ZONE_NAME: ${{ vars.HOSTED_ZONE_NAME }}
           CERTIFICATE_DOMAIN_NAME: ${{ vars.CERTIFICATE_DOMAIN_NAME }}
         run: |
@@ -203,7 +202,6 @@ jobs:
           missing=()
           [ -n "$AWS_ACCOUNT_ID" ]          || missing+=("AWS_ACCOUNT_ID")
           [ -n "$PROJECT_NAME" ]            || missing+=("PROJECT_NAME")
-          [ -n "$AWS_ACCOUNT_ID" ]          || missing+=("AWS_ACCOUNT_ID")
           [ -n "$HOSTED_ZONE_NAME" ]        || missing+=("HOSTED_ZONE_NAME")
           [ -n "$CERTIFICATE_DOMAIN_NAME" ] || missing+=("CERTIFICATE_DOMAIN_NAME")
           if [ ${#missing[@]} -gt 0 ]; then
