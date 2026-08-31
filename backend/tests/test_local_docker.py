@@ -46,13 +46,13 @@ class TestBuildArgv:
 
     def test_memory_and_swap_are_both_capped(self, tmp_path: Path) -> None:
         argv = _build_argv(tmp_path, LANGUAGES["python"], "job-test", 8)
-        assert argv[argv.index("--memory") + 1] == "256m"
-        assert argv[argv.index("--memory-swap") + 1] == "256m"
+        assert argv[argv.index("--memory") + 1] == "512m"
+        assert argv[argv.index("--memory-swap") + 1] == "512m"
 
     def test_root_filesystem_is_read_only(self, tmp_path: Path) -> None:
         argv = _build_argv(tmp_path, LANGUAGES["python"], "job-test", 8)
         assert "--read-only" in argv
-        assert argv[argv.index("--tmpfs") + 1] == "/tmp:size=16m"
+        assert argv[argv.index("--tmpfs") + 1] == "/tmp:size=64m,exec"
 
     def test_runs_as_the_nobody_uid(self, tmp_path: Path) -> None:
         argv = _build_argv(tmp_path, LANGUAGES["python"], "job-test", 8)
@@ -210,7 +210,14 @@ class TestLocalDockerRunnerLive:
 HELLO_WORLD_BY_LANGUAGE = {
     "python": "print('hi')",
     "node": "console.log('hi')",
+    "typescript": 'const message: string = "hi";\nconsole.log(message);\n',
+    "go": 'package main\n\nimport "fmt"\n\nfunc main() {\n\tfmt.Println("hi")\n}\n',
+    "rust": 'fn main() {\n    println!("hi");\n}\n',
 }
+
+# Cold `go run` compiles stdlib from scratch every job (see languages.py) —
+# 8s is fine for interpreted languages but not for a first compile.
+HELLO_WORLD_TIMEOUT_BY_LANGUAGE: dict[str, int] = {"go": 30, "rust": 30}
 
 
 @pytest.mark.docker
@@ -224,7 +231,8 @@ class TestHelloWorldPerLanguage:
     @pytest.mark.parametrize("language", sorted(LANGUAGES))
     def test_hello_world(self, language: str) -> None:
         code = HELLO_WORLD_BY_LANGUAGE[language]
-        result = LocalDockerRunner().run(code=code, language=language, timeout=8)
+        timeout = HELLO_WORLD_TIMEOUT_BY_LANGUAGE.get(language, 8)
+        result = LocalDockerRunner().run(code=code, language=language, timeout=timeout)
         assert result.status == "ok"
         assert result.stdout == "hi\n"
         assert result.exit_code == 0

@@ -156,17 +156,27 @@ def _build_argv(workspace: Path, spec: Language, container_name: str, timeout: i
         container_name,
         "--network",
         "none",
+        # 512m, not 256m: a cold `go run` compiles stdlib inside the same
+        # cgroup; 256m OOM-kills the compiler on arm64. Interpreted langs
+        # barely touch their limit, so this only really matters for go.
         "--memory",
-        "256m",
+        "512m",
         "--memory-swap",
-        "256m",
+        "512m",
         "--cpus",
         "0.5",
         "--pids-limit",
         "64",
         "--read-only",
         "--tmpfs",
-        "/tmp:size=16m",
+        # 64m, not 16m: go/rust (domain/languages.py) compile into this
+        # directory before running, and a cold, uncached `go build` of even
+        # a handful of stdlib packages wants a few tens of MB of build
+        # cache. python/node barely touch /tmp at all, so this only ever
+        # costs anything on the languages that need it.
+        # `exec` is required: go/rust write compiled binaries to /tmp and
+        # run them as uid 65534; Docker's default tmpfs mount is noexec.
+        "/tmp:size=64m,exec",
         "--user",
         "65534",
         "--cap-drop",
