@@ -1,0 +1,78 @@
+# Runs the worker container (backend/Dockerfile.worker) as a long-lived pod
+# on the on-prem cluster. Image is built on the bastion and imported into
+# each node's containerd (`ctr -n k8s.io images import`) — not pulled from
+# Docker Hub/ECR (this repo has never used ECR — see
+# docs/code-playground-hosted-api-plan.md).
+#
+# A Deployment, not a Job: the worker is `python -m codeignite.worker`'s
+# `run_forever()` loop (backend/src/codeignite/worker/loop.py) — a process
+# that long-polls SQS forever, not a task that finishes. This is also
+# exactly the shape docs/code-playground-plan.md's "What changes at EKS
+# time" describes: "Worker becomes a Deployment in the cluster instead of a
+# local process."
+#
+# IMPORTANT — LocalDockerRunner needs dockerd on the scheduled node:
+# this Deployment mounts /var/run/docker.sock and a shared job-workspace
+# hostPath (see volumeMounts below). `KubernetesJobRunner` is the intended
+# long-term replacement — it launches a Job per execution via the k8s API
+# instead of shelling out to a socket.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: codeignite-worker
+  namespace: codeignite
+  labels:
+    app: codeignite-worker
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: codeignite-worker
+  template:
+    metadata:
+      labels:
+        app: codeignite-worker
+    spec:
+      # Give the worker time to finish a job (worker loop only checks for
+      # shutdown *between* jobs — see loop.py's GracefulShutdown) before
+      # Kubernetes SIGKILLs it. max_execution_seconds defaults to 10s;
+      # this leaves generous headroom above that.
+      terminationGracePeriodSeconds: 30
+      containers:
+        - name: worker
+          # Locally imported into each node's containerd (k8s.io namespace)
+          # — no Docker Hub / ECR pull. Rebuild+reimport to update; keep
+          # IfNotPresent so the kubelet does not try (and fail) to pull.
+          image: docker.io/library/codeignite-worker:dev
+          imagePullPolicy: IfNotPresent
+          envFrom:
+            - secretRef:
+                name: codeignite-worker-env
+          env:
+            - name: CODEIGNITE_JOB_WORKSPACE_DIR
+              value: /job-workspace
+            - name: CODEIGNITE_HOST_JOB_WORKSPACE_DIR
+              value: /var/lib/codeignite/job-workspace
+          volumeMounts:
+            - name: docker-sock
+              mountPath: /var/run/docker.sock
+            - name: job-workspace
+              mountPath: /job-workspace
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "500m"
+              memory: "256Mi"
+      nodeSelector:
+        kubernetes.io/hostname: k8s-worker
+      volumes:
+        - name: docker-sock
+          hostPath:
+            path: /var/run/docker.sock
+            type: Socket
+        - name: job-workspace
+          hostPath:
+            path: /var/lib/codeignite/job-workspace
+            type: DirectoryOrCreate
