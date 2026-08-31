@@ -115,7 +115,8 @@ jobs:
       # entrypoint.
       - name: Install dependencies
         working-directory: backend
-        run: "$PYTHON" -m pip install -e ".[dev,lambda]"
+        run: |
+          "$PYTHON" -m pip install -e ".[dev,lambda]"
 
       - name: Check formatting
         working-directory: backend
