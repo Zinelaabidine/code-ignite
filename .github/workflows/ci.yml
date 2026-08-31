@@ -92,8 +92,8 @@ jobs:
     # setup-python defaults to /Users/runner on macOS self-hosted runners
     # when AGENT_TOOLSDIRECTORY is unset — mkdir fails for non-runner users.
     env:
-      RUNNER_TOOL_CACHE: ${{ runner.temp }}/_tool
-      AGENT_TOOLSDIRECTORY: ${{ runner.temp }}/_tool
+      RUNNER_TOOL_CACHE: ${{ github.workspace }}/../../_tool
+      AGENT_TOOLSDIRECTORY: ${{ github.workspace }}/../../_tool
     steps:
       - name: Checkout code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

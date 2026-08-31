@@ -239,8 +239,8 @@ jobs:
     env:
       # setup-python defaults to /Users/runner on macOS self-hosted runners
       # when AGENT_TOOLSDIRECTORY is unset — mkdir fails for non-runner users.
-      RUNNER_TOOL_CACHE: ${{ runner.temp }}/_tool
-      AGENT_TOOLSDIRECTORY: ${{ runner.temp }}/_tool
+      RUNNER_TOOL_CACHE: ${{ github.workspace }}/../../_tool
+      AGENT_TOOLSDIRECTORY: ${{ github.workspace }}/../../_tool
       # Terraform reads these directly; no -var-file needed, and nothing
       # identifying is committed to the repo.
       TF_VAR_aws_region: ${{ vars.AWS_REGION || 'us-east-1' }}
