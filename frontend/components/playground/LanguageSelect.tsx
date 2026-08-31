@@ -11,10 +11,11 @@ type LanguageSelectProps = {
 };
 
 /**
- * A native `<select>`, not a full shadcn combobox: `SUPPORTED_LANGUAGES` has
- * exactly one entry today (see `types/runs.ts`), and a native element is
- * fully keyboard- and screen-reader-accessible for free. Revisit if stage 6
- * (more languages) makes a richer picker worth it.
+ * A native `<select>`, not a full shadcn combobox: `SUPPORTED_LANGUAGES`
+ * (see `types/runs.ts`) has five entries as of stage 6's language additions,
+ * and a native element is still fully keyboard- and screen-reader-accessible
+ * for free at that size. Revisit for a richer picker (search, grouping) if
+ * the list grows enough that scanning a plain dropdown stops being fast.
  */
 export default function LanguageSelect({
   value,

@@ -50,4 +50,10 @@ export type RunOutcome =
 export const SUPPORTED_LANGUAGES: ReadonlyArray<{
   readonly value: string;
   readonly label: string;
-}> = [{ value: "python", label: "Python 3.12" }];
+}> = [
+  { value: "python", label: "Python 3.12" },
+  { value: "node", label: "Node.js 22" },
+  { value: "typescript", label: "TypeScript" },
+  { value: "go", label: "Go 1.27" },
+  { value: "rust", label: "Rust 1.98" },
+];
