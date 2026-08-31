@@ -395,8 +395,11 @@ jobs:
           elif command -v python3 >/dev/null 2>&1; then py=python3
           else echo "::error::python3 not found on the self-hosted runner" >&2; exit 1; fi
           "$py" --version
-          echo "PYTHON=$py" >> "$GITHUB_ENV"
-          "$py" -m pip install --upgrade pip
+          venv="${GITHUB_WORKSPACE}/.ci-venv"
+          "$py" -m venv "$venv"
+          echo "PYTHON=$venv/bin/python" >> "$GITHUB_ENV"
+          echo "$venv/bin" >> "$GITHUB_PATH"
+          "$venv/bin/python" -m pip install --upgrade pip
 
       # Builds backend/dist/api.zip against Lambda's own manylinux2014/
       # Python 3.12 target (see the script), regardless of the runner's own
