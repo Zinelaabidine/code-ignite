@@ -300,7 +300,7 @@ jobs:
           } >> "$GITHUB_OUTPUT"
 
       - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@e6de054238d6b7531b4efff3b6587d9aade6a06c # v6.2.3
+        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
         with:
           role-to-assume: arn:aws:iam::${{ vars.AWS_ACCOUNT_ID }}:role/${{ vars.PROJECT_NAME }}-${{ steps.set-env.outputs.env_name }}-github-deploy-role
           aws-region: ${{ env.AWS_REGION }}
@@ -382,7 +382,7 @@ jobs:
 
       - name: Refresh AWS credentials after IAM policy update
         if: needs.changes.outputs.infra == 'true'
-        uses: aws-actions/configure-aws-credentials@e6de054238d6b7531b4efff3b6587d9aade6a06c # v6.2.3
+        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
         with:
           role-to-assume: arn:aws:iam::${{ vars.AWS_ACCOUNT_ID }}:role/${{ vars.PROJECT_NAME }}-${{ steps.set-env.outputs.env_name }}-github-deploy-role
           aws-region: ${{ env.AWS_REGION }}
@@ -470,7 +470,7 @@ jobs:
 
       - name: Setup Node.js
         if: needs.changes.outputs.frontend == 'true'
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
