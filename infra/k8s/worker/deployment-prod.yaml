@@ -1,0 +1,58 @@
+# Prod worker — polls codeignite-prod-runs and reads/writes codeignite-prod-jobs.
+# Env vars come from Secret codeignite-worker-env-prod (see secret.env.example).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: codeignite-worker-prod
+  namespace: codeignite
+  labels:
+    app: codeignite-worker
+    environment: prod
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: codeignite-worker
+      environment: prod
+  template:
+    metadata:
+      labels:
+        app: codeignite-worker
+        environment: prod
+    spec:
+      terminationGracePeriodSeconds: 30
+      containers:
+        - name: worker
+          image: docker.io/library/codeignite-worker:dev
+          imagePullPolicy: IfNotPresent
+          envFrom:
+            - secretRef:
+                name: codeignite-worker-env-prod
+          env:
+            - name: CODEIGNITE_JOB_WORKSPACE_DIR
+              value: /job-workspace
+            - name: CODEIGNITE_HOST_JOB_WORKSPACE_DIR
+              value: /var/lib/codeignite/job-workspace-prod
+          volumeMounts:
+            - name: docker-sock
+              mountPath: /var/run/docker.sock
+            - name: job-workspace
+              mountPath: /job-workspace
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "500m"
+              memory: "256Mi"
+      nodeSelector:
+        kubernetes.io/hostname: k8s-worker
+      volumes:
+        - name: docker-sock
+          hostPath:
+            path: /var/run/docker.sock
+            type: Socket
+        - name: job-workspace
+          hostPath:
+            path: /var/lib/codeignite/job-workspace-prod
+            type: DirectoryOrCreate

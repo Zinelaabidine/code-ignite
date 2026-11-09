@@ -49,6 +49,8 @@ out/
 .env.test.local
 .env.production.local
 infra/k8s/worker/secret.env
+infra/k8s/worker/secret.env.dev
+infra/k8s/worker/secret.env.prod
 
 # ----------------------------------------------------------------------
 # Backend (Python)
